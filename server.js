@@ -3,6 +3,7 @@ const express = require('express');
 const axios = require('axios');
 const util = require('util');
 const sleep = util.promisify(setTimeout);
+const { nanoid } = require('nanoid'); // 添加nanoid导入
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -233,6 +234,9 @@ function balanceResultSources(papers, targetTotal) {
 // Add a simple in-memory cache for search results
 const searchCache = new Map();
 const CACHE_TTL = 60 * 60 * 1000; // 1 hour in milliseconds
+
+// 添加每日摘要缓存
+const dailyDigestCache = {};
 
 /**
  * Detects if a query is in a language other than English
@@ -687,14 +691,13 @@ Briefly summarize how these papers collectively address the question.
 `;
 
   try {
-    // First API call: Analyze the papers
     logger('INFO', `STEP 1/2: Analyzing papers and extracting key information`);
     logger('DEBUG', `Making request to OpenAI`);
     
     const analysisResponse = await axios.post(OPENAI_BASE_URL, {
       model: "gpt-4o",
       messages: [
-        { role: "system", content: "You are a professional scientific researcher with expertise in analyzing academic papers." },
+        { role: "system", content: "You are a professional academic writer crafting a response based solely on provided research. Please use the language the user is using in their question." },
         { role: "user", content: analysisPrompt }
       ],
       temperature: 0.2,
@@ -959,95 +962,128 @@ app.post('/question', async (req, res) => {
 async function streamOpenAIResponse(prompt, res, stage, model = "gpt-4o") {
   const systemMessage = {
     role: "system",
-    content: "You are a professional academic writer crafting a response based solely on provided research. Please use the language the user is using in their question."
+    content: "You are a professional academic writer crafting a response based solely on provided research."
   };
 
   try {
     // Signal start of streaming for this stage
-    res.write(`data: ${JSON.stringify({
-      status: 'streaming',
-      stage: stage,
-      message: `Starting ${stage}...`
-    })}\n\n`);
+    if (res) {
+      res.write(`data: ${JSON.stringify({
+        status: 'streaming',
+        stage: stage,
+        message: `Starting ${stage}...`
+      })}\n\n`);
+    }
     
     // Accumulate the complete response
     let completeResponse = '';
     
-    const response = await axios.post(
-      OPENAI_BASE_URL, 
-      {
+    const apiUrl = OPENAI_BASE_URL;
+    const headers = {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${OPENAI_API_KEY}`
+    };
+    
+    const body = {
+      model: model,
+      messages: [
+        systemMessage,
+        { role: "user", content: prompt }
+      ],
+      temperature: 0.7,
+      stream: true
+    };
+    
+    // Make streaming API call
+    try {
+      const response = await axios.post(apiUrl, body, {
+        headers: headers,
+        responseType: 'stream'
+      });
+      
+      response.data.on('data', (chunk) => {
+        const lines = chunk.toString().split('\n\n');
+        
+        lines.forEach(line => {
+          if (line.startsWith('data: ')) {
+            const data = line.slice(6);
+            
+            if (data === '[DONE]') return;
+            
+            try {
+              const parsedData = JSON.parse(data);
+              const content = parsedData.choices[0]?.delta?.content;
+              
+              if (content) {
+                completeResponse += content;
+                
+                // Send the token to the client
+                if (res) {
+                  res.write(`data: ${JSON.stringify({
+                    status: 'token',
+                    stage: stage,
+                    token: content
+                  })}\n\n`);
+                }
+              }
+            } catch (parseError) {
+              // Skip unparseable chunks
+              console.error('Error parsing OpenAI stream data:', parseError);
+            }
+          }
+        });
+      });
+      
+      return new Promise((resolve, reject) => {
+      
+        response.data.on('end', () => {
+          // Signal completion of this streaming phase
+          if (res) {
+            res.write(`data: ${JSON.stringify({
+              status: 'chunk_complete',
+              stage: stage,
+              message: `${stage} complete`,
+              content: completeResponse
+            })}\n\n`);
+          }
+          
+          resolve(completeResponse);
+        });
+        
+        response.data.on('error', (err) => {
+          console.error(`Stream error in ${stage}:`, err);
+          reject(err);
+        });
+      });
+      
+    } catch (apiError) {
+      console.error(`API error in ${stage}:`, apiError.message);
+      
+      // 如果流式API失败，回退到非流式API
+      const nonStreamingBody = {
         model: model,
         messages: [
           systemMessage,
           { role: "user", content: prompt }
         ],
-        temperature: 0.3,
-        max_tokens: 1500,
-        stream: true // Enable streaming
-      },
-      {
-        headers: {
-          "Authorization": `Bearer ${OPENAI_API_KEY}`,
-          "Content-Type": "application/json"
-        },
-        responseType: 'stream'
-      }
-    );
-
-    return new Promise((resolve, reject) => {
-      // Process the stream
-      response.data.on('data', (chunk) => {
-        try {
-          // Convert chunk to string and split by 'data: ' prefix
-          const chunkStr = chunk.toString();
-          const dataChunks = chunkStr.split('data: ').filter(Boolean);
-          
-          for (const dataChunk of dataChunks) {
-            if (dataChunk.trim() === '[DONE]') continue;
-            
-            try {
-              const parsedChunk = JSON.parse(dataChunk);
-              if (parsedChunk.choices && parsedChunk.choices[0].delta && parsedChunk.choices[0].delta.content) {
-                const content = parsedChunk.choices[0].delta.content;
-                completeResponse += content;
-                
-                // Send the token to the client
-                res.write(`data: ${JSON.stringify({
-                  status: 'token',
-                  stage: stage,
-                  token: content
-                })}\n\n`);
-              }
-            } catch (parseError) {
-              // Skip unparseable chunks
-              logger('WARN', `Could not parse chunk: ${dataChunk}`);
-            }
-          }
-        } catch (error) {
-          logger('ERROR', 'Error processing stream chunk:', error);
-          // Don't reject here, just log the error and continue
-        }
-      });
+        temperature: 0.7,
+        stream: false
+      };
       
-      response.data.on('end', () => {
-        // Signal completion of this streaming phase
-        res.write(`data: ${JSON.stringify({
-          status: 'chunk_complete',
-          stage: stage,
-          message: `${stage} complete`,
-          content: completeResponse
-        })}\n\n`);
+      try {
+        const nonStreamResponse = await axios.post(apiUrl, nonStreamingBody, {
+          headers: headers
+        });
         
-        resolve(completeResponse);
-      });
-      
-      response.data.on('error', (error) => {
-        logger('ERROR', 'Stream error:', error);
-        reject(error);
-      });
-    });
+        const content = nonStreamResponse.data.choices[0].message.content;
+        return content;
+      } catch (fallbackError) {
+        console.error('Fallback API call also failed:', fallbackError);
+        throw fallbackError;
+      }
+    }
   } catch (error) {
-    logger('ERROR', `OpenAI API streaming error:`, error.message);
+    console.error(`Error in streamOpenAIResponse for ${stage}:`, error);
     throw error;
   }
 }
@@ -1317,7 +1353,7 @@ app.get('/stream-question', async (req, res) => {
         res.write(`data: ${JSON.stringify({ 
           status: 'stage_update', 
           stage: 'paper_analysis',
-          message: `Analyzing ${filteredCitations.length} selected research papers...` 
+          message: 'Analyzing selected research papers...' 
         })}\n\n`);
         
         // Continue with existing code but using filteredCitations instead of all citations
@@ -1532,13 +1568,488 @@ app.get('/api/system-status', (req, res) => {
 
 function formatPapersForClientResponse(papers) {
   return papers.map(paper => {
+    // 处理作者信息，统一格式
+    let formattedAuthors = '未知作者';
+    if (typeof paper.authors === 'string') {
+      formattedAuthors = paper.authors;
+    } else if (Array.isArray(paper.authors)) {
+      // 处理数组形式的作者，可能是对象数组或字符串数组
+      formattedAuthors = paper.authors.map(author => {
+        if (typeof author === 'string') {
+          return author;
+        } else if (author && author.name) {
+          return author.name;
+        }
+        return 'Unknown';
+      }).join(', ');
+    }
+
+    // 确保所有必要的字段都有值
     return {
-      title: paper.title || 'No title available',
-      abstract: paper.abstract || 'No abstract available',
-      year: paper.year || 'Unknown',
-      authors: typeof paper.authors === 'string' ? paper.authors : (Array.isArray(paper.authors) ? paper.authors.map(a => typeof a === 'string' ? a : (a.name || 'Unknown')).join(', ') : 'Unknown'),
-      source: paper.source || 'Unknown Source',
-      link: paper.link || '#'
+      title: paper.title || '无标题',
+      abstract: paper.abstract || '无摘要',
+      authors: formattedAuthors,
+      year: paper.year || '未知年份',
+      source: paper.source || (paper.venue ? paper.venue.name : '未知来源'),
+      link: paper.link || paper.url || paper.externalIds?.DOI || '',
+      id: paper.paperId || paper.id || Math.random().toString(36).substring(2, 15)
     };
   });
 }
+
+/**
+ * GET /stream-daily-digest?topics=<topic1 OR topic2>
+ * 
+ * Process topic subscriptions and generate a daily digest
+ * with detailed streaming updates
+ */
+app.get('/stream-daily-digest', async (req, res) => {
+  const requestId = Math.random().toString(36).substring(2, 15);
+  const topics = req.query.topics;
+  const useCache = req.query.cache !== 'false'; // 默认使用缓存
+  
+  logger('INFO', `[${requestId}] Received request for daily digest on topics: "${topics}"`);
+  
+  if (!topics) {
+    logger('WARN', `[${requestId}] Missing topics parameter`);
+    return res.status(400).json({ error: '缺少主题参数' });
+  }
+  
+  // Setup SSE
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  
+  // Send initial connection confirmation
+  res.write(`data: ${JSON.stringify({ 
+    status: 'connected', 
+    message: '流式连接已建立' 
+  })}\n\n`);
+  
+  // Process function with streaming updates
+  (async () => {
+    try {
+      // 检查缓存
+      if (useCache && dailyDigestCache[topics]) {
+        logger('INFO', `[${requestId}] Found cached digest for "${topics}"`);
+        
+        // 发送缓存的搜索步骤
+        for (const step of dailyDigestCache[topics].searchSteps) {
+          res.write(`data: ${JSON.stringify({
+            status: 'searchStep',
+            step
+          })}\n\n`);
+          // 添加小延迟，使步骤显示更自然
+          await new Promise(resolve => setTimeout(resolve, 300));
+        }
+        
+        // 发送缓存的结果
+        res.write(`data: ${JSON.stringify({ 
+          status: 'complete', 
+          result: dailyDigestCache[topics].result,
+          fromCache: true
+        })}\n\n`);
+        
+        res.end();
+        return;
+      }
+      
+      // 记录搜索步骤
+      const searchSteps = [];
+      
+      // 添加一个搜索步骤
+      const addSearchStep = (name, description) => {
+        const step = { name, description, timestamp: new Date().toISOString() };
+        searchSteps.push(step);
+        res.write(`data: ${JSON.stringify({
+          status: 'searchStep',
+          step
+        })}\n\n`);
+      };
+      
+      // Step 1: 随机选择一个主题进行搜索
+      const selectedTopic = getRandomTopic(topics);
+      addSearchStep('主题选择', `从您订阅的主题中随机选择了主题: "${selectedTopic}"`);
+      
+      // Step 2: 搜索相关论文
+      res.write(`data: ${JSON.stringify({ 
+        status: 'stage_update', 
+        stage: 'paper_retrieval',
+        message: '正在检索最新研究论文...' 
+      })}\n\n`);
+      
+      addSearchStep('开始搜索', `使用主题 "${selectedTopic}" 开始检索学术论文`);
+      
+      // 使用已有的searchPapers函数搜索论文
+      const papers = await searchPapers(selectedTopic, 10, 3);
+      
+      if (!papers || papers.length === 0) {
+        addSearchStep('搜索结果', `未找到与主题 "${selectedTopic}" 相关的论文`);
+        res.write(`data: ${JSON.stringify({ 
+          status: 'error', 
+          error: '未找到与所选主题相关的论文'
+        })}\n\n`);
+        res.end();
+        return;
+      }
+      
+      // 分析论文来源并记录
+      const sourceCount = { semantic: 0, core: 0 };
+      papers.forEach(paper => {
+        if (paper.source && paper.source.toLowerCase().includes('semantic')) {
+          sourceCount.semantic++;
+        } else if (paper.source && paper.source.toLowerCase().includes('core')) {
+          sourceCount.core++;
+        }
+      });
+      
+      addSearchStep('搜索结果统计', 
+        `找到 ${papers.length} 篇相关论文，其中来自 Semantic Scholar 的有 ${sourceCount.semantic} 篇，` +
+        `来自 CORE 的有 ${sourceCount.core} 篇`);
+      
+      // Update with paper search results
+      res.write(`data: ${JSON.stringify({ 
+        status: 'substage_update', 
+        stage: 'papers_found',
+        message: `找到 ${papers.length} 篇相关论文，正在分析...`,
+        papers: formatPapersForClientResponse(papers)
+      })}\n\n`);
+      
+      // Step 3: 记录原始论文
+      const recentPapers = papers.slice(0, 3); // 取最相关的前3篇作为最新论文
+      addSearchStep('选择论文', `从搜索结果中选择最相关的 ${recentPapers.length} 篇论文进行深入分析`);
+      
+      // 格式化原始论文内容展示
+      const rawPapersDisplay = recentPapers.map((paper, index) => {
+        let sourceClass = '';
+        if (paper.source && paper.source.toLowerCase().includes('semantic')) {
+          sourceClass = 'source-semantic';
+        } else if (paper.source && paper.source.toLowerCase().includes('core')) {
+          sourceClass = 'source-core';
+        }
+        
+        return `<div class="paper-item">
+          <span class="paper-source ${sourceClass}">${paper.source || '未知来源'}</span>
+          <strong>${paper.title}</strong><br>
+          作者: ${typeof paper.authors === 'string' ? paper.authors : 
+            (Array.isArray(paper.authors) ? paper.authors.map(a => typeof a === 'string' ? a : (a.name || 'Unknown')).join(', ') : '未知')}
+          (${paper.year || '未知年份'})<br>
+          ${paper.abstract ? `摘要: ${paper.abstract.substring(0, 200)}...` : '无摘要'}
+        </div>`;
+      }).join('');
+      
+      // 记录原始论文
+      addSearchStep('原始论文数据', `<div class="raw-results">
+        <span class="toggle-view" onclick="this.nextElementSibling.style.display = this.nextElementSibling.style.display === 'none' ? 'block' : 'none'">
+          显示/隐藏原始论文数据
+        </span>
+        <div style="display:none">
+          ${rawPapersDisplay}
+        </div>
+      </div>`);
+      
+      // 格式化论文内容用于分析
+      const papersText = recentPapers.map((paper, index) => {
+        return `论文 ${index + 1}:
+标题: ${paper.title}
+摘要: ${paper.abstract || '无摘要'}
+作者: ${typeof paper.authors === 'string' ? paper.authors : (Array.isArray(paper.authors) ? paper.authors.map(a => typeof a === 'string' ? a : (a.name || 'Unknown')).join(', ') : '未知')}
+年份: ${paper.year}
+来源: ${paper.source || '未知来源'}
+链接: ${paper.link || '无链接'}
+`;
+      }).join('\n\n');
+      
+      // Step 4: 生成每日文摘
+      res.write(`data: ${JSON.stringify({ 
+        status: 'stage_update', 
+        stage: 'generating_digest',
+        message: '正在生成研究前沿分析与创新点解读...' 
+      })}\n\n`);
+      
+      addSearchStep('开始文摘生成', '开始处理原始论文数据，生成研究前沿每日文摘');
+      
+      // 构建分析提示
+      const digestPrompt = `
+作为一位专业的学术研究员，您需要为用户分析以下最新发表的学术论文，并生成一份研究前沿每日文摘。
+
+研究主题: ${selectedTopic}
+
+以下是检索到的最新论文:
+${papersText}
+
+请分析这些最新研究，并创建一份详细的文摘，包括：
+1. 每篇论文的主要创新点和研究发现
+2. 这些研究对该领域的意义和价值
+3. 潜在的下一步研究方向和应用场景
+4. 与该领域已有研究的对比和改进点
+
+请以吸引人、通俗易懂但学术严谨的方式呈现，同时保留足够的技术深度和准确性。
+每篇论文分析后请包含原论文链接以供参考。
+最后提供一个总结段落，概述当前该研究领域的发展趋势。
+
+请注意使用适当的标题、分段和格式使内容易于阅读。
+格式应采用Markdown格式，以便于在网页上美观显示。
+请用用户的语言回复。
+`;
+      
+      // 使用streamOpenAIResponse生成每日文摘
+      const digest = await streamOpenAIResponse(digestPrompt, res, 'generating_digest', "gpt-4o");
+      
+      addSearchStep('文摘生成完成', '研究前沿每日文摘生成完成，已应用markdown格式进行渲染');
+      
+      // 创建结果对象
+      const resultObject = {
+        digest: digest,
+        topics: topics,
+        selectedTopic: selectedTopic,
+        papers: formatPapersForClientResponse(recentPapers)
+      };
+      
+      // 保存到缓存
+      if (useCache) {
+        dailyDigestCache[topics] = {
+          result: resultObject,
+          searchSteps: searchSteps,
+          timestamp: new Date().toISOString()
+        };
+        logger('INFO', `[${requestId}] Cached digest for "${topics}"`);
+      }
+      
+      // 发送完整结果
+      res.write(`data: ${JSON.stringify({ 
+        status: 'complete', 
+        result: resultObject
+      })}\n\n`);
+      
+      res.end();
+    } catch (error) {
+      logger('ERROR', `[${requestId}] Error generating daily digest:`, error);
+      res.write(`data: ${JSON.stringify({ 
+        status: 'error', 
+        error: error.message
+      })}\n\n`);
+      res.end();
+    }
+  })();
+});
+
+// 检查是否为同一天（用于每日文章限制）
+function isSameDay(date1, date2) {
+  return date1.getFullYear() === date2.getFullYear() &&
+         date1.getMonth() === date2.getMonth() &&
+         date1.getDate() === date2.getDate();
+}
+
+// 获取今日日期的格式化字符串 YYYY-MM-DD
+function getTodayDateString() {
+  const today = new Date();
+  return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+}
+
+// 随机从多个主题中选择一个
+function getRandomTopic(topics) {
+  if (!topics.includes(' OR ')) {
+    return topics;
+  }
+  const topicsArray = topics.split(' OR ').map(t => t.trim());
+  return topicsArray[Math.floor(Math.random() * topicsArray.length)];
+}
+
+// 添加今日摘要API端点
+app.get('/api/daily-article', async (req, res) => {
+  const requestId = nanoid();
+  const userId = req.query.userId || 'anonymous';
+  const userCacheKey = `${userId}_daily_article`;
+  const todayString = getTodayDateString();
+  
+  try {
+    // 检查用户是否已有今日文章
+    if (dailyDigestCache[userCacheKey] && 
+        isSameDay(new Date(dailyDigestCache[userCacheKey].timestamp), new Date())) {
+      // 返回今日已有文章
+      console.log(`[${requestId}] 用户 ${userId} 获取今日已生成的文章`);
+      return res.json({
+        status: 'success',
+        message: '今日文章已就绪',
+        article: dailyDigestCache[userCacheKey].result,
+        timestamp: dailyDigestCache[userCacheKey].timestamp,
+        topic: dailyDigestCache[userCacheKey].topic,
+        isNew: false
+      });
+    }
+    
+    // 如果没有今日文章，返回提示信息
+    return res.json({
+      status: 'waiting',
+      message: '今日文章尚未生成，请先选择主题',
+      isNew: true
+    });
+  } catch (error) {
+    console.error(`[${requestId}] 获取每日文章失败:`, error);
+    res.status(500).json({
+      status: 'error',
+      message: '获取每日文章时出错: ' + error.message
+    });
+  }
+});
+
+// 为每日摘要添加缓存控制
+app.post('/api/daily-digest', (req, res) => {
+  const requestId = Math.random().toString(36).substring(2, 15);
+  const topics = req.body.topics && req.body.topics.trim();
+  const userId = req.body.userId || 'anonymous';
+  const userCacheKey = `${userId}_daily_article`;
+  
+  // 开启SSE连接
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  
+  if (!topics) {
+    res.write(`data: ${JSON.stringify({ status: 'error', message: '请提供搜索主题' })}\n\n`);
+    res.end();
+    return;
+  }
+  
+  // 确定将使用的真实主题
+  let actualTopic = topics;
+  if (topics.includes(' OR ')) {
+    actualTopic = getRandomTopic(topics);
+    res.write(`data: ${JSON.stringify({ 
+      status: 'topicSelected', 
+      selectedTopic: actualTopic,
+      originalTopics: topics
+    })}\n\n`);
+  }
+  
+  // 保存请求信息
+  const searchRequestObject = {
+    requestId,
+    query: actualTopic,
+    ip: req.ip,
+    timestamp: new Date().toISOString(),
+    userId
+  };
+  
+  // 检查用户是否已有今日文章
+  if (dailyDigestCache[userCacheKey] && 
+      isSameDay(new Date(dailyDigestCache[userCacheKey].timestamp), new Date())) {
+    // 返回今日已有文章
+    res.write(`data: ${JSON.stringify({
+      status: 'complete',
+      message: '今日文章已生成',
+      result: dailyDigestCache[userCacheKey].result,
+      fromCache: true
+    })}\n\n`);
+    res.end();
+    return;
+  }
+  
+  // 获取论文并生成分析
+  (async () => {
+    try {
+      // 开始搜索流程
+      res.write(`data: ${JSON.stringify({ 
+        status: 'searching', 
+        message: '正在搜索相关论文...'
+      })}\n\n`);
+      
+      // 搜索相关论文
+      const papers = await searchPapers(actualTopic, 10);
+      if (!papers || papers.length === 0) {
+        res.write(`data: ${JSON.stringify({ 
+          status: 'error', 
+          message: '未找到与该主题相关的论文，请尝试其他主题。'
+        })}\n\n`);
+        res.end();
+        return;
+      }
+      
+      // 过滤最相关的论文
+      const relevantPapers = await filterRelevantPapers(actualTopic, papers, 3);
+      const formattedPapers = formatPapersForClientResponse(relevantPapers);
+      
+      // 返回找到的论文
+      res.write(`data: ${JSON.stringify({ 
+        status: 'papers_found', 
+        papers: formattedPapers,
+        count: formattedPapers.length,
+        message: `找到 ${formattedPapers.length} 篇相关论文，正在生成分析...`
+      })}\n\n`);
+      
+      // 生成研究分析
+      const analysisPrompt = `分析以下关于"${actualTopic}"的最新研究论文，生成一篇简明扼要的研究摘要：
+
+${formattedPapers.map((paper, index) => `
+论文 ${index + 1}:
+标题: ${paper.title}
+摘要: ${paper.abstract}
+作者: ${paper.authors}
+年份: ${paper.year}
+来源: ${paper.source}
+链接: ${paper.link}
+`).join('\n')}
+
+请生成一篇800-1200字的研究摘要，包含以下部分：
+1. 研究领域概述与背景
+2. 这些论文的主要贡献与发现
+3. 潜在的下一步研究方向和应用场景
+4. 与该领域已有研究的对比和改进点
+
+请以吸引人、通俗易懂但学术严谨的方式呈现，同时保留足够的技术深度和准确性。`;
+
+      // 准备生成摘要
+      res.write(`data: ${JSON.stringify({ 
+        status: 'analysis', 
+        message: '正在生成研究分析...'
+      })}\n\n`);
+      
+      // 使用与现有代码相同的方式调用OpenAI API
+      const openAIPrompt = [
+        {
+          role: "system",
+          content: "你是一名专业的学术研究员，擅长总结学术研究成果，使用简洁易懂但专业严谨的语言。"
+        },
+        {
+          role: "user",
+          content: analysisPrompt
+        }
+      ];
+      
+      // 使用已有的函数调用OpenAI
+      const digest = await streamOpenAIResponse(analysisPrompt, null, "daily_digest", "gpt-4o");
+      
+      // 创建结果对象
+      const result = {
+        topic: actualTopic,
+        papers: formattedPapers,
+        digest: digest,
+        timestamp: new Date().toISOString()
+      };
+      
+      // 缓存结果
+      dailyDigestCache[userCacheKey] = {
+        result,
+        timestamp: new Date().toISOString(),
+        topic: actualTopic
+      };
+      
+      // 返回结果
+      res.write(`data: ${JSON.stringify({ 
+        status: 'complete', 
+        message: '分析完成',
+        result
+      })}\n\n`);
+      
+      res.end();
+    } catch (error) {
+      console.error(`[${requestId}] 生成每日摘要出错:`, error);
+      res.write(`data: ${JSON.stringify({ 
+        status: 'error', 
+        message: '生成摘要时发生错误：' + error.message 
+      })}\n\n`);
+      res.end();
+    }
+  })();
+});

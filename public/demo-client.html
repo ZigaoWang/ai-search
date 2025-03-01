@@ -48,6 +48,35 @@
       background: #95a5a6;
       cursor: not-allowed;
     }
+    .nav-bar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 10px 0;
+      border-bottom: 1px solid #eee;
+      margin-bottom: 20px;
+    }
+    .nav-title {
+      font-size: 24px;
+      font-weight: bold;
+      color: #2c3e50;
+    }
+    .nav-links {
+      display: flex;
+      gap: 20px;
+    }
+    .nav-link {
+      color: #3498db;
+      text-decoration: none;
+      font-weight: 500;
+      padding: 5px 10px;
+      border-radius: 4px;
+      transition: background-color 0.2s ease;
+    }
+    .nav-link:hover {
+      background-color: #f8f9fa;
+      text-decoration: underline;
+    }
     .status {
       padding: 15px;
       background: #f8f9fa;
@@ -418,7 +447,12 @@
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 </head>
 <body>
-  <h1>AI Research Assistant</h1>
+  <div class="nav-bar">
+    <div class="nav-title">AI Research Assistant</div>
+    <div class="nav-links">
+      <a href="subscription.html" class="nav-link">研究订阅</a>
+    </div>
+  </div>
   
   <div class="container">
     <div class="input-group">
