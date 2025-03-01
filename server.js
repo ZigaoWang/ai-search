@@ -571,7 +571,7 @@ Question: "${question}"
     const response = await axios.post(OPENAI_BASE_URL, {
       model: "gpt-4o",
       messages: [
-        { role: "system", content: "You are a helpful assistant. Always provide raw JSON without backticks or markdown." },
+        { role: "system", content: "You are a helpful assistant. Always provide raw JSON without backticks or markdown. Please use the language the user is using in their question." },
         { role: "user", content: prompt }
       ],
       temperature: 0.2,
@@ -668,6 +668,7 @@ You are a professional academic researcher analyzing scientific papers. Your tas
 2. Extract the most relevant information to the question: "${question}"
 3. For each paper, identify 3-5 key claims or findings that address the question
 4. Note any limitations or contradictions between papers
+5. Please use the language the user is using in their question.
 
 ${citationsText}
 
@@ -725,6 +726,7 @@ Important requirements:
 6. Structure your answer with clear sections and paragraphs
 
 The citation keys to use are: ${citationsWithKeys.map(c => `[${c.citationKey}]`).join(', ')}
+Please use the language the user is using in their question.
 `;
 
     // Second API call: Generate the final answer
@@ -734,7 +736,7 @@ The citation keys to use are: ${citationsWithKeys.map(c => `[${c.citationKey}]`)
     const answerResponse = await axios.post(OPENAI_BASE_URL, {
       model: "gpt-4o",
       messages: [
-        { role: "system", content: "You are a professional academic writer crafting a response based solely on provided research." },
+        { role: "system", content: "You are a professional academic writer crafting a response based solely on provided research. Please use the language the user is using in their question." },
         { role: "user", content: answerPrompt }
       ],
       temperature: 0.3,
@@ -957,7 +959,7 @@ app.post('/question', async (req, res) => {
 async function streamOpenAIResponse(prompt, res, stage, model = "gpt-4o") {
   const systemMessage = {
     role: "system",
-    content: "You are a professional academic writer crafting a response based solely on provided research."
+    content: "You are a professional academic writer crafting a response based solely on provided research. Please use the language the user is using in their question."
   };
 
   try {
@@ -1199,7 +1201,8 @@ app.get('/stream-question', async (req, res) => {
       
       if (decision.canAnswer) {
         // Direct answer from AI, use token-by-token streaming
-        const prompt = `Provide a comprehensive answer to the following question: "${question}"`;
+        const prompt = `Provide a comprehensive answer to the following question: "${question}"
+        Please use the language the user is using in their question.`;
         
         // Stream the direct answer token by token
         const finalAnswer = await streamOpenAIResponse(prompt, res, 'generating_answer');
@@ -1373,6 +1376,7 @@ You are a professional academic researcher analyzing scientific papers. Your tas
 2. Extract the most relevant information to the question: "${question}"
 3. For each paper, identify 3-5 key claims or findings that address the question
 4. Note any limitations or contradictions between papers
+5. Please use the language the user is using in their question.
 
 ${citationsText}
 
@@ -1416,6 +1420,7 @@ Important requirements:
 6. Structure your answer with clear sections and paragraphs
 
 The citation keys to use are: ${citationsWithKeys.map(c => `[${c.citationKey}]`).join(', ')}
+Please use the language the user is using in their question.
 `;
         
         // Generate final answer with token-by-token streaming
