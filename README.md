@@ -1,88 +1,75 @@
-# AI Research Assistant
+# AI Search API
 
-An intelligent research assistant that combines the power of large language models with academic search capabilities to provide well-cited answers to complex questions.
+This API provides endpoints for processing research questions using Semantic Scholar and UniAPI (OpenAI) to generate comprehensive answers with citations.
 
-![AI Research Demo](https://via.placeholder.com/800x400?text=AI+Research+Assistant+Demo)
+## Endpoints
 
-## Features
+### GET /question
 
-- **Intelligent Question Assessment**: Determines if a question needs external research or can be answered directly
-- **Academic Research**: Searches academic papers from Semantic Scholar to find relevant information
-- **Paper Analysis**: Analyzes and extracts key points from research papers
-- **Citation Generation**: Creates properly formatted citations with links to source materials
-- **Interactive References**: Click on citations to see the referenced paper details
-- **Real-time Streaming**: Watch the answer being generated token-by-token with live markdown rendering
-- **Process Transparency**: Visualize the entire research process from question to final answer
+Process a question through the research pipeline.
 
-## Installation
+**Query Parameters:**
+- `query` (string): The user question to be processed.
+- `sse` (boolean, optional): If set to `true`, enables Server-Sent Events (SSE) for real-time updates.
 
-### Prerequisites
+**Response:**
+- `200 OK`: Returns the result object with the answer and metadata.
+- `400 Bad Request`: Missing query parameter.
+- `500 Internal Server Error`: Error processing the request.
 
-- [Node.js](https://nodejs.org/) (v14 or newer)
-- OpenAI API key or UniAPI key
+### POST /question
 
-### Setup
+Process a question through the research pipeline using a POST request.
 
-1. Clone the repository:
-   ```bash
-   git clone https://github.com/yourusername/ai-search.git
-   cd ai-search
-   ```
+**Request Body:**
+- `query` (string): The user question to be processed.
 
-2. Install dependencies:
-   ```bash
-   npm install
-   ```
+**Response:**
+- `200 OK`: Returns the result object with the answer and metadata.
+- `400 Bad Request`: Missing query in request body.
+- `500 Internal Server Error`: Error processing the request.
 
-3. Create a `.env` file in the project root with your API key:
-   ```
-   OPENAI_API_KEY=your_api_key_here
-   PORT=3000
-   LOG_LEVEL=INFO
-   ```
+### GET /stream-question
+
+Process a question with streaming updates.
+
+**Query Parameters:**
+- `query` (string): The user question to be processed.
+
+**Response:**
+- `200 OK`: Returns streaming updates and the final result object with the answer and metadata.
+- `400 Bad Request`: Missing query parameter.
+- `500 Internal Server Error`: Error processing the request.
+
+### GET /health
+
+Health check endpoint to verify the server status.
+
+**Response:**
+- `200 OK`: Returns the server status, version, environment, and timestamp.
+
+## Environment Variables
+
+- `PORT`: The port on which the server will listen (default: 3000).
+- `OPENAI_API_KEY`: The API key for accessing the UniAPI (OpenAI) endpoint.
+- `LOG_LEVEL`: The logging level (e.g., `ERROR`, `WARN`, `INFO`, `DEBUG`).
+
+## Logging
+
+The server uses a custom logging function with the following log levels:
+- `ERROR`
+- `WARN`
+- `INFO`
+- `DEBUG`
+
+The current log level is determined by the `LOG_LEVEL` environment variable.
 
 ## Usage
 
-1. Start the server:
+1. Ensure you have a `.env` file with the necessary environment variables.
+2. Start the server:
    ```bash
    node server.js
    ```
-
-2. Open your browser and navigate to:
-   ```
-   http://localhost:3000/
-   ```
-
-3. Enter a research question and watch as the system:
-   - Evaluates whether the question requires research
-   - Searches for relevant academic papers
-   - Analyzes the papers for key information
-   - Generates a comprehensive answer with proper citations
-
-## API Endpoints
-
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/question` | GET/POST | Process a research question (JSON response) |
-| `/stream-question` | GET | Process a question with streaming updates (SSE) |
-| `/health` | GET | API health check |
-| `/api` | GET | API documentation |
-
-## Technology Stack
-
-- **Backend**: Node.js with Express
-- **APIs**: Semantic Scholar API, OpenAI/UniAPI
-- **Frontend**: Vanilla JavaScript with Server-Sent Events (SSE) for streaming
-- **Rendering**: Marked.js for real-time markdown rendering
-
-## How It Works
-
-1. **Question Analysis**: The system first determines if your question requires research or can be answered directly.
-2. **Research**: For research questions, it generates relevant search terms and queries Semantic Scholar.
-3. **Paper Analysis**: It extracts and synthesizes key information from the papers' abstracts.
-4. **Answer Generation**: Using the extracted information, it creates a comprehensive answer with proper citations.
-
-## License
-
-MIT
+3. Access the endpoints as described above.
 
