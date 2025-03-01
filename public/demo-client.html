@@ -1,0 +1,593 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AI Research Assistant Demo</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+      line-height: 1.6;
+      color: #333;
+      max-width: 1000px;
+      margin: 0 auto;
+      padding: 20px;
+    }
+    h1 {
+      color: #2c3e50;
+    }
+    .container {
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+    .input-group {
+      display: flex;
+      gap: 10px;
+    }
+    input {
+      flex: 1;
+      padding: 10px;
+      font-size: 16px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+    }
+    button {
+      padding: 10px 20px;
+      background: #3498db;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 16px;
+    }
+    button:hover {
+      background: #2980b9;
+    }
+    button:disabled {
+      background: #95a5a6;
+      cursor: not-allowed;
+    }
+    .status {
+      padding: 15px;
+      background: #f8f9fa;
+      border-left: 4px solid #3498db;
+      margin-bottom: 10px;
+    }
+    .status.error {
+      border-left-color: #e74c3c;
+    }
+    .status.success {
+      border-left-color: #2ecc71;
+    }
+    .papers-list {
+      margin: 10px 0;
+      padding: 0;
+    }
+    .papers-list li {
+      padding: 8px;
+      background: #f1f1f1;
+      margin-bottom: 5px;
+      border-radius: 4px;
+      list-style-type: none;
+    }
+    .papers-list li a {
+      color: #3498db;
+      text-decoration: none;
+    }
+    .papers-list li a:hover {
+      text-decoration: underline;
+    }
+    .stream-container {
+      white-space: pre-wrap;
+      font-family: Georgia, 'Times New Roman', Times, serif;
+      padding: 15px;
+      background: #fff;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      min-height: 200px;
+      max-height: 500px;
+      overflow-y: auto;
+    }
+    .progress {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      margin-bottom: 20px;
+    }
+    .progress-stage {
+      padding: 10px;
+      background: #ecf0f1;
+      border-left: 3px solid #7f8c8d;
+      display: flex;
+      gap: 10px;
+      align-items: center;
+    }
+    .progress-stage.active {
+      background: #d5f5e3;
+      border-left-color: #2ecc71;
+    }
+    .progress-stage.completed {
+      background: #e8f8f5;
+      border-left-color: #1abc9c;
+    }
+    .spinner {
+      display: inline-block;
+      width: 20px;
+      height: 20px;
+      border: 3px solid rgba(0, 0, 0, 0.1);
+      border-radius: 50%;
+      border-top-color: #3498db;
+      animation: spin 1s ease-in-out infinite;
+    }
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+    .checkmark {
+      display: inline-block;
+      width: 20px;
+      height: 20px;
+      color: #27ae60;
+      font-weight: bold;
+      text-align: center;
+    }
+    .citation {
+      background-color: #e8f4fc;
+      border-radius: 3px;
+      padding: 0 3px;
+    }
+    .decision-banner {
+      padding: 10px 15px;
+      margin: 10px 0;
+      border-radius: 4px;
+      font-weight: bold;
+    }
+    
+    .direct-answer {
+      background-color: #d4edda;
+      border-left: 5px solid #28a745;
+      color: #155724;
+    }
+    
+    .research-needed {
+      background-color: #cce5ff;
+      border-left: 5px solid #0d6efd;
+      color: #004085;
+    }
+    
+    .search-keyword {
+      display: inline-block;
+      padding: 4px 8px;
+      background: #e9f5ff;
+      border: 1px solid #b0d7ff;
+      border-radius: 15px;
+      font-weight: bold;
+      color: #0366d6;
+      margin: 5px 0;
+    }
+    
+    .paper-item {
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      margin-bottom: 10px;
+      overflow: hidden;
+    }
+    
+    .paper-header {
+      padding: 10px;
+      background: #f8f9fa;
+      cursor: pointer;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 1px solid #ddd;
+    }
+    
+    .paper-header h4 {
+      margin: 0;
+      font-size: 16px;
+    }
+    
+    .paper-details {
+      padding: 15px;
+      display: none;
+    }
+    
+    .paper-details.expanded {
+      display: block;
+    }
+    
+    .toggle-icon:after {
+      content: "▼";
+      font-size: 12px;
+    }
+    
+    .expanded .toggle-icon:after {
+      content: "▲";
+    }
+    
+    .meta-info {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 15px;
+      font-size: 14px;
+      margin-bottom: 10px;
+    }
+    
+    .meta-item {
+      display: flex;
+      align-items: center;
+    }
+    
+    .meta-item i {
+      margin-right: 5px;
+      opacity: 0.6;
+    }
+    
+    .abstract {
+      font-style: italic;
+      color: #555;
+      margin-top: 10px;
+      padding-top: 10px;
+      border-top: 1px solid #eee;
+    }
+  </style>
+</head>
+<body>
+  <h1>AI Research Assistant</h1>
+  
+  <div class="container">
+    <div class="input-group">
+      <input type="text" id="question-input" placeholder="Ask a research question..." />
+      <button id="ask-button">Ask Question</button>
+    </div>
+    
+    <div class="progress" id="progress-container" style="display:none;">
+      <div class="progress-stage" data-stage="evaluation" id="stage-evaluation">
+        <div class="spinner"></div>
+        <span>Evaluating question scope...</span>
+      </div>
+      <div class="progress-stage" data-stage="paper_retrieval" id="stage-paper_retrieval">
+        <div class="spinner"></div>
+        <span>Searching for relevant papers...</span>
+      </div>
+      <div class="progress-stage" data-stage="paper_analysis" id="stage-paper_analysis">
+        <div class="spinner"></div>
+        <span>Analyzing paper content...</span>
+      </div>
+      <div class="progress-stage" data-stage="answer_generation" id="stage-answer_generation">
+        <div class="spinner"></div>
+        <span>Generating final answer...</span>
+      </div>
+    </div>
+    
+    <div id="papers-container" style="display:none;">
+      <h3>Research Papers</h3>
+      <ul class="papers-list" id="papers-list"></ul>
+    </div>
+    
+    <div id="status-container" style="display:none;" class="status">
+      <p id="status-message">Connecting to server...</p>
+    </div>
+    
+    <div id="answer-container" style="display:none;">
+      <h3>Answer</h3>
+      <div class="stream-container" id="answer-content"></div>
+    </div>
+  </div>
+
+  <script>
+    document.addEventListener('DOMContentLoaded', function() {
+      // Check if running from file protocol
+      if (window.location.protocol === 'file:') {
+        // Create error message
+        const errorBox = document.createElement('div');
+        errorBox.className = 'status error';
+        errorBox.innerHTML = `
+          <h3>⚠️ Incorrect Access Method</h3>
+          <p>You're opening this file directly from your filesystem, which won't work due to browser security restrictions.</p>
+          <p><strong>To use this application:</strong></p>
+          <ol>
+            <li>Make sure your Node.js server is running: <code>node server.js</code></li>
+            <li>Access the application through: <code>http://localhost:3000/</code></li>
+          </ol>
+        `;
+        
+        // Insert at the top of the container
+        document.querySelector('.container').prepend(errorBox);
+        
+        // Disable the button
+        document.getElementById('ask-button').disabled = true;
+        return;
+      }
+      
+      const questionInput = document.getElementById('question-input');
+      const askButton = document.getElementById('ask-button');
+      const statusContainer = document.getElementById('status-container');
+      const statusMessage = document.getElementById('status-message');
+      const answerContainer = document.getElementById('answer-container');
+      const answerContent = document.getElementById('answer-content');
+      const progressContainer = document.getElementById('progress-container');
+      const papersContainer = document.getElementById('papers-container');
+      const papersList = document.getElementById('papers-list');
+      
+      let eventSource = null;
+      let decisionBanner = null; // Reference to decision banner
+      
+      function updateStage(stageName, isActive) {
+        const stageElement = document.getElementById(`stage-${stageName}`);
+        if (stageElement) {
+          if (isActive) {
+            stageElement.classList.add('active');
+            stageElement.querySelector('.spinner').style.display = 'inline-block';
+          } else {
+            stageElement.classList.remove('active');
+            stageElement.classList.add('completed');
+            stageElement.querySelector('.spinner').style.display = 'none';
+            
+            // Remove existing checkmark if any
+            const existingCheckmark = stageElement.querySelector('.checkmark');
+            if (existingCheckmark) existingCheckmark.remove();
+            
+            // Add checkmark
+            const checkmark = document.createElement('div');
+            checkmark.className = 'checkmark';
+            checkmark.innerHTML = '✓';
+            stageElement.prepend(checkmark);
+          }
+        }
+      }
+      
+      function setStatus(message, type = 'info') {
+        statusContainer.style.display = 'block';
+        statusContainer.className = `status ${type}`;
+        statusMessage.textContent = message;
+      }
+      
+      function togglePaperDetails(header) {
+        const details = header.nextElementSibling;
+        const isExpanded = details.classList.toggle('expanded');
+        header.classList.toggle('expanded', isExpanded);
+      }
+      
+      function startStreaming(question) {
+        // Reset UI
+        answerContent.textContent = '';
+        papersList.innerHTML = '';
+        answerContainer.style.display = 'none';
+        papersContainer.style.display = 'none';
+        
+        // Remove any existing decision banner
+        if (decisionBanner) {
+          decisionBanner.remove();
+          decisionBanner = null;
+        }
+        
+        // Show progress tracker
+        progressContainer.style.display = 'flex';
+        document.querySelectorAll('.progress-stage').forEach(stage => {
+          stage.classList.remove('active', 'completed');
+          const spinner = stage.querySelector('.spinner');
+          if (spinner) spinner.style.display = 'none';
+          const checkmark = stage.querySelector('.checkmark');
+          if (checkmark) checkmark.remove();
+        });
+        
+        // Disable button during process
+        askButton.disabled = true;
+        
+        // Close any existing connection
+        if (eventSource) {
+          eventSource.close();
+        }
+        
+        // Connect to SSE endpoint
+        const encodedQuestion = encodeURIComponent(question);
+        eventSource = new EventSource(`/stream-question?query=${encodedQuestion}`);
+        
+        setStatus('Connected to server, processing your question...');
+        
+        // Handle different event types from the server
+        eventSource.onmessage = function(event) {
+          try {
+            const data = JSON.parse(event.data);
+            
+            switch (data.status) {
+              case 'connected':
+                setStatus('Connection established, awaiting response...');
+                break;
+                
+              case 'stage_update':
+                setStatus(data.message);
+                updateStage(data.stage, true);
+                break;
+                
+              case 'substage_update':
+                if (data.stage === 'evaluation_complete') {
+                  // Mark evaluation stage as complete
+                  updateStage('evaluation', false);
+                  
+                  // Create a decision banner
+                  decisionBanner = document.createElement('div');
+                  decisionBanner.className = `decision-banner ${data.canAnswer ? 'direct-answer' : 'research-needed'}`;
+                  decisionBanner.innerHTML = data.canAnswer ? 
+                    '<span>✓ This question can be answered directly from my knowledge</span>' :
+                    '<span>🔍 Research needed: Searching external sources for information</span>';
+                  
+                  // Insert after progress container
+                  progressContainer.after(decisionBanner);
+                  
+                  setStatus(data.message);
+                }
+                else if (data.stage === 'search_term_selected' && data.queryWord) {
+                  // Display search keyword
+                  if (!decisionBanner) {
+                    decisionBanner = document.createElement('div');
+                    decisionBanner.className = 'decision-banner research-needed';
+                    progressContainer.after(decisionBanner);
+                  }
+                  
+                  const keywordElem = document.createElement('div');
+                  keywordElem.innerHTML = `
+                    <div>Search keyword: <span class="search-keyword">${data.queryWord}</span></div>
+                  `;
+                  decisionBanner.appendChild(keywordElem);
+                  
+                  setStatus(`Using search term: "${data.queryWord}"`);
+                }
+                else if (data.stage === 'papers_found') {
+                  // Display found papers with collapsible details
+                  papersContainer.style.display = 'block';
+                  papersList.innerHTML = '';
+                  
+                  data.papers.forEach((paper, index) => {
+                    const paperItem = document.createElement('li');
+                    paperItem.className = 'paper-item';
+                    
+                    const authors = paper.authors && paper.authors.length > 0 ? 
+                      `${paper.authors[0]}${paper.authors.length > 1 ? ' et al.' : ''}` : 
+                      'Unknown author';
+                    
+                    // Create header (always visible)
+                    const header = document.createElement('div');
+                    header.className = 'paper-header';
+                    header.innerHTML = `
+                      <h4>${paper.title}</h4>
+                      <span class="toggle-icon"></span>
+                    `;
+                    header.addEventListener('click', () => togglePaperDetails(header));
+                    
+                    // Create details (expandable)
+                    const details = document.createElement('div');
+                    details.className = 'paper-details';
+                    
+                    // Prepare authors list
+                    const authorsList = paper.authors && paper.authors.length > 0 ?
+                      paper.authors.join(', ') : 'Unknown';
+                    
+                    details.innerHTML = `
+                      <div class="meta-info">
+                        <div class="meta-item">
+                          <i>👥</i> Authors: ${authorsList}
+                        </div>
+                        <div class="meta-item">
+                          <i>📅</i> Year: ${paper.year || 'Unknown'}
+                        </div>
+                        <div class="meta-item">
+                          <i>🔗</i> <a href="${paper.link}" target="_blank">View on Semantic Scholar</a>
+                        </div>
+                      </div>
+                      <div class="abstract">
+                        <strong>Abstract:</strong> ${paper.abstract || 'No abstract available'}
+                      </div>
+                    `;
+                    
+                    // Append header and details to paper item
+                    paperItem.appendChild(header);
+                    paperItem.appendChild(details);
+                    papersList.appendChild(paperItem);
+                  });
+                  
+                  // Automatically expand the first paper
+                  if (papersList.firstChild) {
+                    const firstHeader = papersList.firstChild.querySelector('.paper-header');
+                    togglePaperDetails(firstHeader);
+                  }
+                  
+                  setStatus(`Found ${data.papers.length} relevant papers for your question.`, 'success');
+                } else {
+                  setStatus(data.message);
+                }
+                break;
+                
+              case 'streaming':
+                // New streaming phase started
+                answerContainer.style.display = 'block';
+                if (data.stage === 'analyzing_papers') {
+                  updateStage('paper_retrieval', false); // Complete previous stage
+                  updateStage('paper_analysis', true); // Start current stage
+                } else if (data.stage === 'generating_answer') {
+                  updateStage('paper_analysis', false); // Complete previous stage
+                  updateStage('answer_generation', true); // Start current stage
+                }
+                break;
+                
+              case 'token':
+                // Individual token from streaming response
+                // If this is the first token, make sure container is displayed
+                if (!answerContent.textContent) {
+                  answerContainer.style.display = 'block';
+                }
+                
+                // Add token to display
+                answerContent.textContent += data.token;
+                
+                // Auto-scroll to bottom
+                answerContent.scrollTop = answerContent.scrollHeight;
+                break;
+                
+              case 'chunk_complete':
+                // A chunk of streaming is complete
+                if (data.stage === 'generating_answer') {
+                  updateStage('answer_generation', false);
+                  setStatus('Response complete.', 'success');
+                }
+                break;
+                
+              case 'error':
+                setStatus(`Error: ${data.error}`, 'error');
+                eventSource.close();
+                askButton.disabled = false;
+                break;
+                
+              case 'complete':
+                // Process complete, clean up
+                setStatus('Response complete', 'success');
+                eventSource.close();
+                askButton.disabled = false;
+                
+                // Format citations if present
+                setTimeout(() => {
+                  const citationPattern = /\[([A-Za-z]+\d{4})\]/g;
+                  answerContent.innerHTML = answerContent.textContent.replace(
+                    citationPattern, 
+                    '<span class="citation">[$1]</span>'
+                  );
+                }, 500);
+                break;
+                
+              default:
+                console.log('Unknown status:', data);
+            }
+          } catch (error) {
+            console.error('Error parsing event data:', error);
+            setStatus('Error processing server response', 'error');
+          }
+        };
+        
+        eventSource.onerror = function() {
+          setStatus('Connection error. Reconnecting...', 'error');
+          // The browser will automatically try to reconnect
+        };
+      }
+      
+      // Handle form submission
+      askButton.addEventListener('click', function() {
+        const question = questionInput.value.trim();
+        if (question) {
+          startStreaming(question);
+        } else {
+          setStatus('Please enter a question', 'error');
+        }
+      });
+      
+      // Allow Enter key to submit
+      questionInput.addEventListener('keypress', function(e) {
+        if (e.key === 'Enter') {
+          askButton.click();
+        }
+      });
+    });
+  </script>
+</body>
+</html>

@@ -21,6 +21,9 @@ app.use((req, res, next) => {
   next();
 });
 
+// Serve static files from 'public' directory
+app.use(express.static('public'));
+
 // Semantic Scholar API endpoint for paper search
 const SEMSCHOLAR_BASE_URL = 'https://api.semanticscholar.org/graph/v1/paper/search';
 
@@ -481,9 +484,114 @@ app.post('/question', async (req, res) => {
 });
 
 /**
+ * Streams a response from OpenAI API token-by-token
+ * 
+ * @param {string} prompt - The prompt to send to OpenAI
+ * @param {object} res - Express response object for SSE
+ * @param {string} stage - Current processing stage
+ * @param {string} model - OpenAI model to use
+ * @returns {Promise<string>} - Complete text response
+ */
+async function streamOpenAIResponse(prompt, res, stage, model = "gpt-4o") {
+  const systemMessage = {
+    role: "system",
+    content: "You are a professional academic writer crafting a response based solely on provided research."
+  };
+
+  try {
+    // Signal start of streaming for this stage
+    res.write(`data: ${JSON.stringify({
+      status: 'streaming',
+      stage: stage,
+      message: `Starting ${stage}...`
+    })}\n\n`);
+    
+    // Accumulate the complete response
+    let completeResponse = '';
+    
+    const response = await axios.post(
+      OPENAI_BASE_URL, 
+      {
+        model: model,
+        messages: [
+          systemMessage,
+          { role: "user", content: prompt }
+        ],
+        temperature: 0.3,
+        max_tokens: 1500,
+        stream: true // Enable streaming
+      },
+      {
+        headers: {
+          "Authorization": `Bearer ${OPENAI_API_KEY}`,
+          "Content-Type": "application/json"
+        },
+        responseType: 'stream'
+      }
+    );
+
+    return new Promise((resolve, reject) => {
+      // Process the stream
+      response.data.on('data', (chunk) => {
+        try {
+          // Convert chunk to string and split by 'data: ' prefix
+          const chunkStr = chunk.toString();
+          const dataChunks = chunkStr.split('data: ').filter(Boolean);
+          
+          for (const dataChunk of dataChunks) {
+            if (dataChunk.trim() === '[DONE]') continue;
+            
+            try {
+              const parsedChunk = JSON.parse(dataChunk);
+              if (parsedChunk.choices && parsedChunk.choices[0].delta && parsedChunk.choices[0].delta.content) {
+                const content = parsedChunk.choices[0].delta.content;
+                completeResponse += content;
+                
+                // Send the token to the client
+                res.write(`data: ${JSON.stringify({
+                  status: 'token',
+                  stage: stage,
+                  token: content
+                })}\n\n`);
+              }
+            } catch (parseError) {
+              // Skip unparseable chunks
+              logger('WARN', `Could not parse chunk: ${dataChunk}`);
+            }
+          }
+        } catch (error) {
+          logger('ERROR', 'Error processing stream chunk:', error);
+          // Don't reject here, just log the error and continue
+        }
+      });
+      
+      response.data.on('end', () => {
+        // Signal completion of this streaming phase
+        res.write(`data: ${JSON.stringify({
+          status: 'chunk_complete',
+          stage: stage,
+          message: `${stage} complete`,
+          content: completeResponse
+        })}\n\n`);
+        
+        resolve(completeResponse);
+      });
+      
+      response.data.on('error', (error) => {
+        logger('ERROR', 'Stream error:', error);
+        reject(error);
+      });
+    });
+  } catch (error) {
+    logger('ERROR', `OpenAI API streaming error:`, error.message);
+    throw error;
+  }
+}
+
+/**
  * GET /stream-question?query=<user question>
  * 
- * Process a question with streaming updates
+ * Process a question with detailed streaming updates and token-by-token streaming
  */
 app.get('/stream-question', (req, res) => {
   const requestId = Math.random().toString(36).substring(2, 15);
@@ -501,30 +609,46 @@ app.get('/stream-question', (req, res) => {
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
   
+  // Send initial connection confirmation
+  res.write(`data: ${JSON.stringify({ 
+    status: 'connected', 
+    message: 'Stream connection established' 
+  })}\n\n`);
+  
   // Process function with streaming updates
   (async () => {
     try {
       // Step 1: Determine if question can be answered internally
       res.write(`data: ${JSON.stringify({ 
-        status: 'processing', 
+        status: 'stage_update', 
         stage: 'evaluation',
-        message: 'Evaluating if question requires research...' 
+        message: 'Evaluating if your question requires external research...' 
       })}\n\n`);
       
       const decision = await decideAnswer(question);
       
+      // Update on decision result
+      res.write(`data: ${JSON.stringify({ 
+        status: 'substage_update', 
+        stage: 'evaluation_complete',
+        message: decision.canAnswer 
+          ? 'Your question can be answered directly without research.' 
+          : 'Your question requires searching external research papers.',
+        canAnswer: decision.canAnswer
+      })}\n\n`);
+      
       if (decision.canAnswer) {
-        res.write(`data: ${JSON.stringify({ 
-          status: 'processing', 
-          stage: 'internal_answer',
-          message: 'Generating answer from internal knowledge...' 
-        })}\n\n`);
+        // Direct answer from AI, use token-by-token streaming
+        const prompt = `Provide a comprehensive answer to the following question: "${question}"`;
         
-        // Send final result
+        // Stream the direct answer token by token
+        const finalAnswer = await streamOpenAIResponse(prompt, res, 'generating_answer');
+        
+        // Send final metadata
         res.write(`data: ${JSON.stringify({ 
           status: 'complete', 
           result: {
-            answer: decision.answer,
+            answer: finalAnswer,
             citations: [],
             note: "Answer provided solely based on internal knowledge; no citations required.",
             processSteps: ["Evaluated question scope", "Determined internal knowledge sufficient", "Generated answer"]
@@ -532,18 +656,33 @@ app.get('/stream-question', (req, res) => {
         })}\n\n`);
         res.end();
       } else {
-        // Step 2: Fetch papers
+        // Step 2: Show search keyword being used
         const queryWord = decision.queryWord;
         
         res.write(`data: ${JSON.stringify({ 
-          status: 'processing', 
-          stage: 'research',
-          message: `Searching for relevant papers using keyword: "${queryWord}"` 
+          status: 'substage_update', 
+          stage: 'search_term_selected',
+          message: `Using search term: "${queryWord}"`,
+          queryWord: queryWord
+        })}\n\n`);
+        
+        // Step 3: Fetch papers
+        res.write(`data: ${JSON.stringify({ 
+          status: 'stage_update', 
+          stage: 'paper_retrieval',
+          message: `Searching for relevant scientific papers...` 
         })}\n\n`);
         
         const papers = await searchPapers(queryWord);
         
+        // Update with paper search results
         if (!papers || papers.length === 0) {
+          res.write(`data: ${JSON.stringify({ 
+            status: 'stage_update', 
+            stage: 'no_papers_found',
+            message: `No relevant papers found for search term "${queryWord}".`
+          })}\n\n`);
+          
           res.write(`data: ${JSON.stringify({ 
             status: 'complete', 
             result: {
@@ -557,6 +696,7 @@ app.get('/stream-question', (req, res) => {
           return;
         }
         
+        // We found papers, inform the user
         const citations = papers.map(paper => ({
           title: paper.title || 'N/A',
           abstract: paper.abstract || 'No abstract available',
@@ -567,10 +707,23 @@ app.get('/stream-question', (req, res) => {
           link: paper.paperId ? `https://semanticscholar.org/paper/${paper.paperId}` : 'N/A'
         }));
         
-        // Step 3: Generate answer with citations (with stage updates)
+        // Show found papers
         res.write(`data: ${JSON.stringify({ 
-          status: 'processing', 
-          stage: 'analysis',
+          status: 'substage_update', 
+          stage: 'papers_found',
+          message: `Found ${citations.length} relevant papers.`,
+          papers: citations.map(p => ({ 
+            title: p.title, 
+            authors: p.authors,
+            year: p.year,
+            link: p.link 
+          }))
+        })}\n\n`);
+        
+        // Step 4: Paper analysis stage with citation keys
+        res.write(`data: ${JSON.stringify({ 
+          status: 'stage_update', 
+          stage: 'paper_analysis',
           message: `Analyzing ${citations.length} research papers...` 
         })}\n\n`);
         
@@ -587,6 +740,17 @@ app.get('/stream-question', (req, res) => {
             index: index + 1
           };
         });
+        
+        // Show citation keys being used
+        res.write(`data: ${JSON.stringify({ 
+          status: 'substage_update', 
+          stage: 'citations_prepared',
+          message: `Prepared citation keys for analysis`,
+          citationKeys: citationsWithKeys.map(c => ({ 
+            key: c.citationKey, 
+            title: c.title 
+          }))
+        })}\n\n`);
         
         // Format citations for analysis
         const citationsText = citationsWithKeys.map((citation) => {
@@ -623,29 +787,14 @@ SYNTHESIS:
 Briefly summarize how these papers collectively address the question.
 `;
         
-        // First API call for analysis
-        const analysisResponse = await axios.post(OPENAI_BASE_URL, {
-          model: "gpt-4o",
-          messages: [
-            { role: "system", content: "You are a professional scientific researcher with expertise in analyzing academic papers." },
-            { role: "user", content: analysisPrompt }
-          ],
-          temperature: 0.2,
-          max_tokens: 1500,
-        }, {
-          headers: {
-            "Authorization": `Bearer ${OPENAI_API_KEY}`,
-            "Content-Type": "application/json"
-          }
-        });
+        // Stream the paper analysis process
+        const paperAnalysis = await streamOpenAIResponse(analysisPrompt, res, 'analyzing_papers', "gpt-4o");
         
-        const paperAnalysis = analysisResponse.data.choices[0].message.content;
-        
-        // Update client
+        // Step 5: Final answer generation with token-by-token streaming
         res.write(`data: ${JSON.stringify({ 
-          status: 'processing', 
+          status: 'stage_update', 
           stage: 'answer_generation',
-          message: 'Generating final answer with proper citations...' 
+          message: 'Preparing your final answer with citations...' 
         })}\n\n`);
         
         // Answer prompt
@@ -666,25 +815,10 @@ Important requirements:
 The citation keys to use are: ${citationsWithKeys.map(c => `[${c.citationKey}]`).join(', ')}
 `;
         
-        // Generate final answer
-        const answerResponse = await axios.post(OPENAI_BASE_URL, {
-          model: "gpt-4o",
-          messages: [
-            { role: "system", content: "You are a professional academic writer crafting a response based solely on provided research." },
-            { role: "user", content: answerPrompt }
-          ],
-          temperature: 0.3,
-          max_tokens: 1500,
-        }, {
-          headers: {
-            "Authorization": `Bearer ${OPENAI_API_KEY}`,
-            "Content-Type": "application/json"
-          }
-        });
+        // Generate final answer with token-by-token streaming
+        const finalAnswer = await streamOpenAIResponse(answerPrompt, res, 'generating_answer', "gpt-4o");
         
-        const finalAnswer = answerResponse.data.choices[0].message.content;
-        
-        // Send final result
+        // Send final result metadata
         res.write(`data: ${JSON.stringify({ 
           status: 'complete', 
           result: {
@@ -713,19 +847,44 @@ The citation keys to use are: ${citationsWithKeys.map(c => `[${c.citationKey}]`)
       }
     } catch (error) {
       logger('ERROR', `[${requestId}] Streaming error:`, error);
-      res.write(`data: ${JSON.stringify({ status: 'error', error: error.message })}\n\n`);
+      res.write(`data: ${JSON.stringify({ 
+        status: 'error', 
+        error: error.message,
+        stage: 'error'
+      })}\n\n`);
       res.end();
     }
   })();
 });
 
-// Add a health check endpoint
+/**
+ * Health check endpoint
+ */
 app.get('/health', (req, res) => {
-  res.status(200).json({ 
-    status: 'ok', 
+  res.status(200).json({
+    status: 'ok',
     version: '1.0.0',
     environment: process.env.NODE_ENV || 'development',
     timestamp: new Date().toISOString()
+  });
+});
+
+/**
+ * GET / - Root route with API information
+ */
+app.get('/api', (req, res) => {
+  res.json({
+    name: "AI Research Assistant API",
+    version: "1.0.0",
+    endpoints: [
+      { path: "/question", method: "GET/POST", description: "Process a research question" },
+      { path: "/stream-question", method: "GET", description: "Process a research question with streaming updates" },
+      { path: "/health", method: "GET", description: "API health check" }
+    ],
+    ui: [
+      { path: "/", description: "Demo client home" },
+      { path: "/demo-client.html", description: "Interactive demo interface" }
+    ]
   });
 });
 
