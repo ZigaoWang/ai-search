@@ -1333,7 +1333,8 @@ app.get('/stream-question', async (req, res) => {
           citationCount: (paper.citationCount !== undefined) ? paper.citationCount : 0,
           referenceCount: (paper.referenceCount !== undefined) ? paper.referenceCount : 0,
           authors: typeof paper.authors === 'string' ? paper.authors : (Array.isArray(paper.authors) ? paper.authors.map(author => typeof author === 'string' ? author : (author.name || 'Unknown')).join(', ') : 'Unknown'),
-          link: paper.link || 'N/A'
+          link: paper.link || paper.url || paper.externalIds?.DOI || '',
+          id: paper.paperId || paper.id || Math.random().toString(36).substring(2, 15)
         }));
         
         // Inform which papers were selected
@@ -1654,167 +1655,165 @@ app.get('/stream-daily-digest', async (req, res) => {
         return;
       }
       
-      // 记录搜索步骤
-      const searchSteps = [];
-      
-      // 添加一个搜索步骤
-      const addSearchStep = (name, description) => {
-        const step = { name, description, timestamp: new Date().toISOString() };
-        searchSteps.push(step);
-        res.write(`data: ${JSON.stringify({
-          status: 'searchStep',
-          step
-        })}\n\n`);
-      };
-      
-      // Step 1: 随机选择一个主题进行搜索
-      const selectedTopic = getRandomTopic(topics);
-      addSearchStep('主题选择', `从您订阅的主题中随机选择了主题: "${selectedTopic}"`);
-      
-      // Step 2: 搜索相关论文
+      // 如果没有今日文章，返回提示信息
+      return res.json({
+        status: 'waiting',
+        message: '今日文章尚未生成，请先选择主题',
+        isNew: true
+      });
+    } catch (error) {
+      logger('ERROR', `[${requestId}] 获取每日文章失败:`, error);
+      res.status(500).json({
+        status: 'error',
+        message: '获取每日文章时出错: ' + error.message
+      });
+    }
+  })();
+});
+
+// 为每日摘要添加缓存控制
+app.post('/api/daily-digest', async (req, res) => {
+  const requestId = Math.random().toString(36).substring(2, 15);
+  const topics = req.body.topics && req.body.topics.trim();
+  const userId = req.body.userId || 'anonymous';
+  
+  // 开启SSE连接
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  
+  if (!topics) {
+    res.write(`data: ${JSON.stringify({ status: 'error', message: '请提供搜索主题' })}\n\n`);
+    res.end();
+    return;
+  }
+  
+  // 确定将使用的真实主题
+  let actualTopic = topics;
+  if (topics.includes(' OR ')) {
+    actualTopic = getRandomTopic(topics);
+    res.write(`data: ${JSON.stringify({ 
+      status: 'topicSelected', 
+      selectedTopic: actualTopic,
+      originalTopics: topics
+    })}\n\n`);
+  }
+  
+  // 保存请求信息
+  const searchRequestObject = {
+    requestId,
+    query: actualTopic,
+    ip: req.ip,
+    timestamp: new Date().toISOString(),
+    userId
+  };
+  
+  // 检查用户是否已有今日文章
+  if (dailyDigestCache[userId + '_daily_article'] && 
+      isSameDay(new Date(dailyDigestCache[userId + '_daily_article'].timestamp), new Date())) {
+    // 返回今日已有文章
+    res.write(`data: ${JSON.stringify({
+      status: 'complete',
+      message: '今日文章已生成',
+      result: dailyDigestCache[userId + '_daily_article'].result,
+      fromCache: true
+    })}\n\n`);
+    res.end();
+    return;
+  }
+  
+  // 获取论文并生成分析
+  (async () => {
+    try {
+      // 开始搜索流程
       res.write(`data: ${JSON.stringify({ 
-        status: 'stage_update', 
-        stage: 'paper_retrieval',
-        message: '正在检索最新研究论文...' 
+        status: 'searching', 
+        message: '正在搜索相关论文...'
       })}\n\n`);
       
-      addSearchStep('开始搜索', `使用主题 "${selectedTopic}" 开始检索学术论文`);
-      
-      // 使用已有的searchPapers函数搜索论文
-      const papers = await searchPapers(selectedTopic, 10, 3);
-      
+      // 搜索相关论文
+      const papers = await searchPapers(actualTopic, 10);
       if (!papers || papers.length === 0) {
-        addSearchStep('搜索结果', `未找到与主题 "${selectedTopic}" 相关的论文`);
         res.write(`data: ${JSON.stringify({ 
           status: 'error', 
-          error: '未找到与所选主题相关的论文'
+          message: '未找到与该主题相关的论文，请尝试其他主题。'
         })}\n\n`);
         res.end();
         return;
       }
       
-      // 分析论文来源并记录
-      const sourceCount = { semantic: 0, core: 0 };
-      papers.forEach(paper => {
-        if (paper.source && paper.source.toLowerCase().includes('semantic')) {
-          sourceCount.semantic++;
-        } else if (paper.source && paper.source.toLowerCase().includes('core')) {
-          sourceCount.core++;
-        }
-      });
+      // 过滤最相关的论文
+      const relevantPapers = await filterRelevantPapers(actualTopic, papers, 3);
+      const formattedPapers = formatPapersForClientResponse(relevantPapers);
       
-      addSearchStep('搜索结果统计', 
-        `找到 ${papers.length} 篇相关论文，其中来自 Semantic Scholar 的有 ${sourceCount.semantic} 篇，` +
-        `来自 CORE 的有 ${sourceCount.core} 篇`);
-      
-      // Update with paper search results
+      // 返回找到的论文
       res.write(`data: ${JSON.stringify({ 
-        status: 'substage_update', 
-        stage: 'papers_found',
-        message: `找到 ${papers.length} 篇相关论文，正在分析...`,
-        papers: formatPapersForClientResponse(papers)
+        status: 'papers_found', 
+        papers: formattedPapers,
+        count: formattedPapers.length,
+        message: `找到 ${formattedPapers.length} 篇相关论文，正在生成分析...`
       })}\n\n`);
       
-      // Step 3: 记录原始论文
-      const recentPapers = papers.slice(0, 3); // 取最相关的前3篇作为最新论文
-      addSearchStep('选择论文', `从搜索结果中选择最相关的 ${recentPapers.length} 篇论文进行深入分析`);
-      
-      // 格式化原始论文内容展示
-      const rawPapersDisplay = recentPapers.map((paper, index) => {
-        let sourceClass = '';
-        if (paper.source && paper.source.toLowerCase().includes('semantic')) {
-          sourceClass = 'source-semantic';
-        } else if (paper.source && paper.source.toLowerCase().includes('core')) {
-          sourceClass = 'source-core';
-        }
-        
-        return `<div class="paper-item">
-          <span class="paper-source ${sourceClass}">${paper.source || '未知来源'}</span>
-          <strong>${paper.title}</strong><br>
-          作者: ${typeof paper.authors === 'string' ? paper.authors : 
-            (Array.isArray(paper.authors) ? paper.authors.map(a => typeof a === 'string' ? a : (a.name || 'Unknown')).join(', ') : '未知')}
-          (${paper.year || '未知年份'})<br>
-          ${paper.abstract ? `摘要: ${paper.abstract.substring(0, 200)}...` : '无摘要'}
-        </div>`;
-      }).join('');
-      
-      // 记录原始论文
-      addSearchStep('原始论文数据', `<div class="raw-results">
-        <span class="toggle-view" onclick="this.nextElementSibling.style.display = this.nextElementSibling.style.display === 'none' ? 'block' : 'none'">
-          显示/隐藏原始论文数据
-        </span>
-        <div style="display:none">
-          ${rawPapersDisplay}
-        </div>
-      </div>`);
-      
-      // 格式化论文内容用于分析
-      const papersText = recentPapers.map((paper, index) => {
-        return `论文 ${index + 1}:
+      // 生成研究分析
+      const analysisPrompt = `分析以下关于"${actualTopic}"的最新研究论文，生成一篇简明扼要的研究摘要：
+
+${formattedPapers.map((paper, index) => `
+论文 ${index + 1}:
 标题: ${paper.title}
-摘要: ${paper.abstract || '无摘要'}
-作者: ${typeof paper.authors === 'string' ? paper.authors : (Array.isArray(paper.authors) ? paper.authors.map(a => typeof a === 'string' ? a : (a.name || 'Unknown')).join(', ') : '未知')}
+摘要: ${paper.abstract}
+作者: ${paper.authors}
 年份: ${paper.year}
-来源: ${paper.source || '未知来源'}
-链接: ${paper.link || '无链接'}
-`;
-      }).join('\n\n');
-      
-      // Step 4: 生成每日文摘
-      res.write(`data: ${JSON.stringify({ 
-        status: 'stage_update', 
-        stage: 'generating_digest',
-        message: '正在生成研究前沿分析与创新点解读...' 
-      })}\n\n`);
-      
-      addSearchStep('开始文摘生成', '开始处理原始论文数据，生成研究前沿每日文摘');
-      
-      // 构建分析提示
-      const digestPrompt = `
-作为一位专业的学术研究员，您需要为用户分析以下最新发表的学术论文，并生成一份研究前沿每日文摘。
+来源: ${paper.source}
+链接: ${paper.link}
+`).join('\n')}
 
-研究主题: ${selectedTopic}
-
-以下是检索到的最新论文:
-${papersText}
-
-请分析这些最新研究，并创建一份详细的文摘，包括：
-1. 每篇论文的主要创新点和研究发现
-2. 这些研究对该领域的意义和价值
+请生成一篇800-1200字的研究摘要，包含以下部分：
+1. 研究领域概述与背景
+2. 这些论文的主要贡献与发现
 3. 潜在的下一步研究方向和应用场景
 4. 与该领域已有研究的对比和改进点
+5. 完整的参考文献列表，使用标准学术引用格式
 
-请以吸引人、通俗易懂但学术严谨的方式呈现，同时保留足够的技术深度和准确性。
-每篇论文分析后请包含原论文链接以供参考。
-最后提供一个总结段落，概述当前该研究领域的发展趋势。
+在正文中，请使用适当的引用标记（如[1], [2]等）来指明信息来源，并确保每个重要论点都有对应引用。
+请以吸引人、通俗易懂但学术严谨的方式呈现，同时保留足够的技术深度和准确性。`;
 
-请注意使用适当的标题、分段和格式使内容易于阅读。
-格式应采用Markdown格式，以便于在网页上美观显示。
-请用用户的语言回复。
-`;
+      // 准备生成摘要
+      res.write(`data: ${JSON.stringify({ 
+        status: 'analysis', 
+        message: '正在生成研究分析...'
+      })}\n\n`);
       
-      // 使用streamOpenAIResponse生成每日文摘
-      const digest = await streamOpenAIResponse(digestPrompt, res, 'generating_digest', "gpt-4o");
+      // 使用与现有代码相同的方式调用OpenAI API
+      const openAIPrompt = [
+        {
+          role: "system",
+          content: "你是一名专业的学术研究员，擅长总结学术研究成果，使用简洁易懂但专业严谨的语言。"
+        },
+        {
+          role: "user",
+          content: analysisPrompt
+        }
+      ];
       
-      addSearchStep('文摘生成完成', '研究前沿每日文摘生成完成，已应用markdown格式进行渲染');
+      // 使用已有的函数调用OpenAI，并将res传入以实现流式传输
+      const digest = await streamOpenAIResponse(analysisPrompt, res, "daily_digest", "gpt-4o");
       
       // 创建结果对象
       const resultObject = {
         digest: digest,
         topics: topics,
-        selectedTopic: selectedTopic,
-        papers: formatPapersForClientResponse(recentPapers)
+        selectedTopic: actualTopic,
+        papers: formatPapersForClientResponse(relevantPapers)
       };
       
       // 保存到缓存
-      if (useCache) {
-        dailyDigestCache[topics] = {
-          result: resultObject,
-          searchSteps: searchSteps,
-          timestamp: new Date().toISOString()
-        };
-        logger('INFO', `[${requestId}] Cached digest for "${topics}"`);
-      }
+      dailyDigestCache[userId + '_daily_article'] = {
+        result: resultObject,
+        timestamp: new Date().toISOString(),
+        topic: actualTopic
+      };
+      
+      console.log(`[${requestId}] 已缓存用户 ${userId} 的摘要，主题: ${actualTopic}`);
       
       // 发送完整结果
       res.write(`data: ${JSON.stringify({ 
@@ -1822,18 +1821,18 @@ ${papersText}
         result: resultObject
       })}\n\n`);
       
-      res.end();
     } catch (error) {
-      logger('ERROR', `[${requestId}] Error generating daily digest:`, error);
+      console.error(`[${requestId}] 生成每日摘要出错:`, error);
       res.write(`data: ${JSON.stringify({ 
         status: 'error', 
-        error: error.message
+        message: '生成摘要时出错：' + error.message 
       })}\n\n`);
-      res.end();
     }
+    
+    res.end();
+    
   })();
 });
-
 // 检查是否为同一天（用于每日文章限制）
 function isSameDay(date1, date2) {
   return date1.getFullYear() === date2.getFullYear() &&
@@ -1892,164 +1891,4 @@ app.get('/api/daily-article', async (req, res) => {
       message: '获取每日文章时出错: ' + error.message
     });
   }
-});
-
-// 为每日摘要添加缓存控制
-app.post('/api/daily-digest', (req, res) => {
-  const requestId = Math.random().toString(36).substring(2, 15);
-  const topics = req.body.topics && req.body.topics.trim();
-  const userId = req.body.userId || 'anonymous';
-  const userCacheKey = `${userId}_daily_article`;
-  
-  // 开启SSE连接
-  res.setHeader('Content-Type', 'text/event-stream');
-  res.setHeader('Cache-Control', 'no-cache');
-  res.setHeader('Connection', 'keep-alive');
-  
-  if (!topics) {
-    res.write(`data: ${JSON.stringify({ status: 'error', message: '请提供搜索主题' })}\n\n`);
-    res.end();
-    return;
-  }
-  
-  // 确定将使用的真实主题
-  let actualTopic = topics;
-  if (topics.includes(' OR ')) {
-    actualTopic = getRandomTopic(topics);
-    res.write(`data: ${JSON.stringify({ 
-      status: 'topicSelected', 
-      selectedTopic: actualTopic,
-      originalTopics: topics
-    })}\n\n`);
-  }
-  
-  // 保存请求信息
-  const searchRequestObject = {
-    requestId,
-    query: actualTopic,
-    ip: req.ip,
-    timestamp: new Date().toISOString(),
-    userId
-  };
-  
-  // 检查用户是否已有今日文章
-  if (dailyDigestCache[userCacheKey] && 
-      isSameDay(new Date(dailyDigestCache[userCacheKey].timestamp), new Date())) {
-    // 返回今日已有文章
-    res.write(`data: ${JSON.stringify({
-      status: 'complete',
-      message: '今日文章已生成',
-      result: dailyDigestCache[userCacheKey].result,
-      fromCache: true
-    })}\n\n`);
-    res.end();
-    return;
-  }
-  
-  // 获取论文并生成分析
-  (async () => {
-    try {
-      // 开始搜索流程
-      res.write(`data: ${JSON.stringify({ 
-        status: 'searching', 
-        message: '正在搜索相关论文...'
-      })}\n\n`);
-      
-      // 搜索相关论文
-      const papers = await searchPapers(actualTopic, 10);
-      if (!papers || papers.length === 0) {
-        res.write(`data: ${JSON.stringify({ 
-          status: 'error', 
-          message: '未找到与该主题相关的论文，请尝试其他主题。'
-        })}\n\n`);
-        res.end();
-        return;
-      }
-      
-      // 过滤最相关的论文
-      const relevantPapers = await filterRelevantPapers(actualTopic, papers, 3);
-      const formattedPapers = formatPapersForClientResponse(relevantPapers);
-      
-      // 返回找到的论文
-      res.write(`data: ${JSON.stringify({ 
-        status: 'papers_found', 
-        papers: formattedPapers,
-        count: formattedPapers.length,
-        message: `找到 ${formattedPapers.length} 篇相关论文，正在生成分析...`
-      })}\n\n`);
-      
-      // 生成研究分析
-      const analysisPrompt = `分析以下关于"${actualTopic}"的最新研究论文，生成一篇简明扼要的研究摘要：
-
-${formattedPapers.map((paper, index) => `
-论文 ${index + 1}:
-标题: ${paper.title}
-摘要: ${paper.abstract}
-作者: ${paper.authors}
-年份: ${paper.year}
-来源: ${paper.source}
-链接: ${paper.link}
-`).join('\n')}
-
-请生成一篇800-1200字的研究摘要，包含以下部分：
-1. 研究领域概述与背景
-2. 这些论文的主要贡献与发现
-3. 潜在的下一步研究方向和应用场景
-4. 与该领域已有研究的对比和改进点
-
-请以吸引人、通俗易懂但学术严谨的方式呈现，同时保留足够的技术深度和准确性。`;
-
-      // 准备生成摘要
-      res.write(`data: ${JSON.stringify({ 
-        status: 'analysis', 
-        message: '正在生成研究分析...'
-      })}\n\n`);
-      
-      // 使用与现有代码相同的方式调用OpenAI API
-      const openAIPrompt = [
-        {
-          role: "system",
-          content: "你是一名专业的学术研究员，擅长总结学术研究成果，使用简洁易懂但专业严谨的语言。"
-        },
-        {
-          role: "user",
-          content: analysisPrompt
-        }
-      ];
-      
-      // 使用已有的函数调用OpenAI
-      const digest = await streamOpenAIResponse(analysisPrompt, null, "daily_digest", "gpt-4o");
-      
-      // 创建结果对象
-      const result = {
-        topic: actualTopic,
-        papers: formattedPapers,
-        digest: digest,
-        timestamp: new Date().toISOString()
-      };
-      
-      // 缓存结果
-      dailyDigestCache[userCacheKey] = {
-        result,
-        timestamp: new Date().toISOString(),
-        topic: actualTopic
-      };
-      
-      // 返回结果
-      res.write(`data: ${JSON.stringify({ 
-        status: 'complete', 
-        message: '分析完成',
-        result
-      })}\n\n`);
-      
-      res.end();
-    } catch (error) {
-      console.error(`[${requestId}] 生成每日摘要出错:`, error);
-      res.write(`data: ${JSON.stringify({ 
-        status: 'error', 
-        message: '生成摘要时发生错误：' + error.message 
-      })}\n\n`);
-      res.end();
-    }
-  })();
 });
