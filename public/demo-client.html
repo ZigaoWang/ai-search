@@ -135,6 +135,14 @@
       background-color: #e8f4fc;
       border-radius: 3px;
       padding: 0 3px;
+      cursor: pointer;
+      transition: background-color 0.2s;
+    }
+    .citation:hover {
+      background-color: #c9e3f8;
+    }
+    .citation.active {
+      background-color: #ffeeba;
     }
     .decision-banner {
       padding: 10px 15px;
@@ -171,6 +179,14 @@
       border-radius: 4px;
       margin-bottom: 10px;
       overflow: hidden;
+    }
+    
+    .paper-item.cited {
+      border-left: 4px solid #28a745;
+    }
+    
+    .paper-item.unused {
+      opacity: 0.7;
     }
     
     .paper-header {
@@ -231,7 +247,154 @@
       padding-top: 10px;
       border-top: 1px solid #eee;
     }
+    
+    .markdown h1 {
+      font-size: 1.8em;
+      margin-top: 1em;
+      margin-bottom: 0.5em;
+    }
+    
+    .markdown h2 {
+      font-size: 1.5em;
+      margin-top: 1em;
+      margin-bottom: 0.5em;
+    }
+    
+    .markdown h3 {
+      font-size: 1.3em;
+      margin-top: 0.8em;
+      margin-bottom: 0.4em;
+    }
+    
+    .markdown p {
+      margin-bottom: 1em;
+    }
+    
+    .markdown ul, .markdown ol {
+      margin: 1em 0;
+      padding-left: 2em;
+    }
+    
+    .markdown blockquote {
+      border-left: 3px solid #ccc;
+      margin-left: 0;
+      padding-left: 1em;
+      color: #666;
+    }
+    
+    .markdown code {
+      background-color: #f5f5f5;
+      padding: 2px 4px;
+      border-radius: 3px;
+      font-family: monospace;
+    }
+    
+    .markdown pre {
+      background-color: #f5f5f5;
+      padding: 1em;
+      border-radius: 4px;
+      overflow-x: auto;
+    }
+    
+    .markdown table {
+      border-collapse: collapse;
+      width: 100%;
+      margin: 1em 0;
+    }
+    
+    .markdown th, .markdown td {
+      border: 1px solid #ddd;
+      padding: 8px;
+      text-align: left;
+    }
+    
+    .markdown th {
+      background-color: #f2f2f2;
+    }
+    
+    .paper-tag {
+      display: inline-block;
+      padding: 3px 6px;
+      border-radius: 12px;
+      font-size: 12px;
+      margin-left: 8px;
+    }
+    
+    .paper-tag.cited {
+      background-color: #d4edda;
+      color: #155724;
+    }
+    
+    .paper-tag.unused {
+      background-color: #e2e3e5;
+      color: #383d41;
+    }
+    
+    /* Updated styles for real-time rendering and citations */
+    .live-markdown-container {
+      padding: 20px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      background-color: #fff;
+      min-height: 250px;
+      max-height: 600px;
+      overflow-y: auto;
+    }
+    
+    .stream-container {
+      display: none; /* Hide the raw text container */
+    }
+    
+    /* Superscript citation style */
+    .citation {
+      vertical-align: super;
+      font-size: 0.75em;
+      line-height: 0;
+      position: relative;
+      background-color: #e9f7fe;
+      padding: 3px 5px;
+      border-radius: 8px;
+      margin: 0 2px;
+      cursor: pointer;
+      font-weight: bold;
+      text-decoration: none;
+      color: #0366d6;
+      transition: all 0.2s ease;
+    }
+    
+    .citation:hover {
+      background-color: #cceeff;
+      transform: scale(1.1);
+    }
+    
+    .citation.active {
+      background-color: #ffdd57;
+    }
+    
+    /* Add a flash animation for highlighting citations and papers */
+    @keyframes flash-highlight {
+      0% { background-color: transparent; }
+      20% { background-color: #ffff99; }
+      100% { background-color: transparent; }
+    }
+    
+    .flash {
+      animation: flash-highlight 1.5s ease;
+    }
+
+    /* Add style for selected papers */
+    .paper-item.selected {
+      border-left: 4px solid #9c27b0;
+    }
+    
+    .paper-tag.selected {
+      background-color: #e1bee7;
+      color: #4a148c;
+    }
   </style>
+  
+  <!-- Add Marked.js for markdown rendering -->
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 </head>
 <body>
   <h1>AI Research Assistant</h1>
@@ -273,6 +436,7 @@
     <div id="answer-container" style="display:none;">
       <h3>Answer</h3>
       <div class="stream-container" id="answer-content"></div>
+      <div class="live-markdown-container" id="live-markdown"></div>
     </div>
   </div>
 
@@ -307,12 +471,22 @@
       const statusMessage = document.getElementById('status-message');
       const answerContainer = document.getElementById('answer-container');
       const answerContent = document.getElementById('answer-content');
+      const liveMarkdown = document.getElementById('live-markdown');
       const progressContainer = document.getElementById('progress-container');
       const papersContainer = document.getElementById('papers-container');
       const papersList = document.getElementById('papers-list');
       
       let eventSource = null;
       let decisionBanner = null; // Reference to decision banner
+      let citationMapping = {}; // Store citation mappings
+      let paperElements = {}; // Store references to paper elements
+      let accumulatedText = ''; // Store accumulated text for real-time rendering
+      
+      // Configure markdown parser
+      marked.setOptions({
+        breaks: true,
+        gfm: true
+      });
       
       function updateStage(stageName, isActive) {
         const stageElement = document.getElementById(`stage-${stageName}`);
@@ -350,12 +524,52 @@
         header.classList.toggle('expanded', isExpanded);
       }
       
+      function highlightCitation(citationKey) {
+        // Remove active class from all citations
+        document.querySelectorAll('.citation.active').forEach(el => {
+          el.classList.remove('active');
+        });
+        
+        // Add active class to clicked citation
+        document.querySelectorAll(`.citation[data-key="${citationKey}"]`).forEach(el => {
+          el.classList.add('active');
+        });
+        
+        // Scroll to corresponding paper if it exists
+        const paperElement = paperElements[citationKey];
+        if (paperElement) {
+          // Ensure papers section is visible
+          papersContainer.style.display = 'block';
+          
+          // Smooth scroll to the paper
+          paperElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          
+          // Flash effect on the paper
+          paperElement.classList.remove('flash');
+          void paperElement.offsetWidth; // Trigger reflow
+          paperElement.classList.add('flash');
+          
+          // Make sure details are expanded
+          const header = paperElement.querySelector('.paper-header');
+          const details = paperElement.querySelector('.paper-details');
+          if (!details.classList.contains('expanded')) {
+            togglePaperDetails(header);
+          }
+        }
+      }
+      
       function startStreaming(question) {
         // Reset UI
         answerContent.textContent = '';
+        liveMarkdown.innerHTML = '';
         papersList.innerHTML = '';
         answerContainer.style.display = 'none';
         papersContainer.style.display = 'none';
+        
+        // Reset tracking objects
+        citationMapping = {};
+        paperElements = {};
+        accumulatedText = '';
         
         // Remove any existing decision banner
         if (decisionBanner) {
@@ -443,16 +657,22 @@
                   data.papers.forEach((paper, index) => {
                     const paperItem = document.createElement('li');
                     paperItem.className = 'paper-item';
+                    paperItem.dataset.index = index;
                     
-                    const authors = paper.authors && paper.authors.length > 0 ? 
-                      `${paper.authors[0]}${paper.authors.length > 1 ? ' et al.' : ''}` : 
-                      'Unknown author';
+                    // Create citation key from author and year
+                    const authorLastName = paper.authors && paper.authors.length > 0 ? 
+                      paper.authors[0].split(' ').pop() : 'Unknown';
+                    const citationKey = `${authorLastName}${paper.year || ''}`;
+                    paperItem.dataset.citationKey = citationKey;
+                    
+                    // Store reference to this paper element
+                    paperElements[citationKey] = paperItem;
                     
                     // Create header (always visible)
                     const header = document.createElement('div');
                     header.className = 'paper-header';
                     header.innerHTML = `
-                      <h4>${paper.title}</h4>
+                      <h4>${paper.title} <span class="paper-tag unused">Not cited yet</h4>
                       <span class="toggle-icon"></span>
                     `;
                     header.addEventListener('click', () => togglePaperDetails(header));
@@ -495,11 +715,34 @@
                   }
                   
                   setStatus(`Found ${data.papers.length} relevant papers for your question.`, 'success');
-                } else {
+                } else if (data.stage === 'filtering_papers') {
+                  setStatus(`Evaluating papers for relevance to your question...`, 'info');
+                } else if (data.stage === 'papers_selected') {
+                  // Update display to indicate which papers were selected
+                  setStatus(`Selected ${data.selectedPapers.length} most relevant papers for analysis.`, 'success');
+                  
+                  // Mark selected papers in the UI
+                  data.selectedPapers.forEach(selected => {
+                    // Find the paper element by title
+                    document.querySelectorAll('.paper-item').forEach(item => {
+                      const titleElem = item.querySelector('h4');
+                      if (titleElem && titleElem.textContent.includes(selected.title)) {
+                        // Mark as selected
+                        item.classList.add('selected');
+                        const tagElem = item.querySelector('.paper-tag');
+                        if (tagElem) {
+                          tagElem.textContent = 'Selected';
+                          tagElem.classList.add('selected');
+                        }
+                      }
+                    });
+                  });
+                }
+                else {
                   setStatus(data.message);
                 }
                 break;
-                
+              
               case 'streaming':
                 // New streaming phase started
                 answerContainer.style.display = 'block';
@@ -521,9 +764,13 @@
                 
                 // Add token to display
                 answerContent.textContent += data.token;
+                accumulatedText += data.token;
                 
-                // Auto-scroll to bottom
-                answerContent.scrollTop = answerContent.scrollHeight;
+                // Update markdown rendering in real-time
+                updateMarkdown(accumulatedText);
+                
+                // Auto-scroll to bottom of rendered content
+                liveMarkdown.scrollTop = liveMarkdown.scrollHeight;
                 break;
                 
               case 'chunk_complete':
@@ -546,14 +793,63 @@
                 eventSource.close();
                 askButton.disabled = false;
                 
-                // Format citations if present
-                setTimeout(() => {
-                  const citationPattern = /\[([A-Za-z]+\d{4})\]/g;
-                  answerContent.innerHTML = answerContent.textContent.replace(
-                    citationPattern, 
-                    '<span class="citation">[$1]</span>'
-                  );
-                }, 500);
+                // Store citation mapping if available
+                if (data.result && data.result.citationMapping) {
+                  citationMapping = data.result.citationMapping.reduce((acc, item) => {
+                    acc[item.key] = item;
+                    return acc;
+                  }, {});
+                  
+                  // Mark which papers were cited
+                  Object.keys(paperElements).forEach(key => {
+                    const paperElement = paperElements[key];
+                    const tagElement = paperElement.querySelector('.paper-tag');
+                    
+                    if (citationMapping[key]) {
+                      paperElement.classList.add('cited');
+                      paperElement.classList.remove('unused');
+                      if (tagElement) {
+                        tagElement.textContent = 'Cited';
+                        tagElement.classList.remove('unused');
+                        tagElement.classList.add('cited');
+                      }
+                    } else {
+                      paperElement.classList.add('unused');
+                      if (tagElement) {
+                        tagElement.textContent = 'Not cited';
+                        tagElement.classList.remove('cited');
+                        tagElement.classList.add('unused');
+                      }
+                    }
+                  });
+                }
+                
+                // Process response text - convert markdown and make citations interactive
+                const processedText = answerContent.textContent;
+                
+                // Convert markdown to HTML
+                let html = marked.parse(processedText);
+                
+                // Make citations interactive
+                html = html.replace(/\[([A-Za-z]+\d{4})\]/g, (match, key) => {
+                  const citationKey = key;
+                  const isCited = citationMapping[citationKey];
+                  if (isCited) {
+                    return `<span class="citation" data-key="${citationKey}" onclick="this.dispatchEvent(new CustomEvent('citation-click', {bubbles: true, detail: {key: '${citationKey}'}}))">
+                      [${citationKey}]
+                    </span>`;
+                  } else {
+                    return match; // Keep as-is if not in our mapping
+                  }
+                });
+                
+                // Set the processed HTML
+                answerContent.innerHTML = html;
+                
+                // Add listener for citation clicks
+                answerContent.addEventListener('citation-click', (e) => {
+                  highlightCitation(e.detail.key);
+                });
                 break;
                 
               default:
@@ -569,6 +865,35 @@
           setStatus('Connection error. Reconnecting...', 'error');
           // The browser will automatically try to reconnect
         };
+      }
+      
+      // Real-time markdown processing function
+      function updateMarkdown(text) {
+        // Process citations in text
+        let htmlWithCitations = text.replace(/\[([A-Za-z]+\d{4})\]/g, (match, key) => {
+          const citationKey = key;
+          const isCited = citationMapping[citationKey];
+          if (isCited) {
+            return `<a class="citation" data-key="${citationKey}" onclick="this.dispatchEvent(new CustomEvent('citation-click', {bubbles: true, detail: {key: '${citationKey}'}}))">
+              [${citationKey}]
+            </a>`;
+          } else {
+            return `<span class="citation-placeholder">${match}</span>`;
+          }
+        });
+        
+        // Convert markdown to HTML
+        const html = marked.parse(htmlWithCitations);
+        liveMarkdown.innerHTML = html;
+        
+        // Add click event listeners to citations
+        document.querySelectorAll('.citation').forEach(citation => {
+          citation.addEventListener('click', function(e) {
+            const key = this.getAttribute('data-key');
+            highlightCitation(key);
+            e.preventDefault();
+          });
+        });
       }
       
       // Handle form submission

@@ -589,6 +589,104 @@ async function streamOpenAIResponse(prompt, res, stage, model = "gpt-4o") {
 }
 
 /**
+ * Filter papers to select only the most relevant ones for the question.
+ * 
+ * @param {string} question - The research question
+ * @param {Array} papers - Retrieved papers with title and abstract
+ * @param {number} maxPapers - Maximum number of papers to select
+ * @returns {Promise<Array>} - Array of selected papers
+ */
+async function filterRelevantPapers(question, papers, maxPapers = 5) {
+  logger('INFO', `Filtering ${papers.length} papers for relevance to question: "${question}"`);
+  
+  // If we have few papers already, no need to filter
+  if (papers.length <= maxPapers) {
+    logger('INFO', `Only ${papers.length} papers retrieved, using all without filtering`);
+    return papers;
+  }
+  
+  // Prepare paper summaries for evaluation
+  const paperSummaries = papers.map((paper, index) => {
+    return {
+      id: index,
+      title: paper.title || 'No title available',
+      abstract: paper.abstract || 'No abstract available',
+      year: paper.year || 'Unknown',
+      authors: paper.authors ? paper.authors.map(a => a).join(', ') : 'Unknown'
+    };
+  });
+  
+  const filterPrompt = `
+You are a research librarian helping to find the most relevant papers for a research question.
+
+Research question: "${question}"
+
+Below are summaries of ${papers.length} papers. Your task is to:
+1. Evaluate each paper's relevance to the research question based on its title and abstract
+2. Select only the most relevant papers (maximum ${maxPapers})
+3. Prefer papers with substantive content addressing the question directly
+
+Output ONLY a JSON array of paper IDs in order of relevance, like this:
+[0, 3, 5]
+
+Paper summaries:
+${JSON.stringify(paperSummaries, null, 2)}
+`;
+
+  try {
+    logger('DEBUG', `Sending filter prompt to OpenAI`);
+    
+    const response = await axios.post(OPENAI_BASE_URL, {
+      model: "gpt-4o",
+      messages: [
+        { role: "system", content: "You are a research librarian helping to select the most relevant papers. Respond ONLY with a JSON array of paper IDs." },
+        { role: "user", content: filterPrompt }
+      ],
+      temperature: 0.2,
+      max_tokens: 150,
+    }, {
+      headers: {
+        "Authorization": `Bearer ${OPENAI_API_KEY}`,
+        "Content-Type": "application/json"
+      }
+    });
+
+    let reply = response.data.choices[0].message.content.trim();
+    // Clean any markdown code blocks if present
+    reply = reply.replace(/```(?:json)?\s*([\s\S]*?)\s*```/g, '$1').trim();
+    
+    try {
+      // Parse the array of selected paper IDs
+      const selectedIds = JSON.parse(reply);
+      
+      if (!Array.isArray(selectedIds)) {
+        logger('WARN', 'Response is not an array, using all papers');
+        return papers;
+      }
+      
+      // Get the selected papers
+      const selectedPapers = selectedIds.map(id => papers[id]).filter(Boolean);
+      
+      if (selectedPapers.length === 0) {
+        logger('WARN', 'No papers selected, using all papers');
+        return papers;
+      }
+      
+      logger('INFO', `Selected ${selectedPapers.length} most relevant papers out of ${papers.length}`);
+      return selectedPapers;
+    } catch (parseError) {
+      logger('ERROR', `Failed to parse paper selection response:`, reply);
+      // Fall back to using all papers
+      return papers;
+    }
+  } catch (error) {
+    logger('ERROR', `Error in paper filtering:`, error.message);
+    // Fall back to using all papers
+    return papers;
+  }
+}
+
+/**
  * GET /stream-question?query=<user question>
  * 
  * Process a question with detailed streaming updates and token-by-token streaming
@@ -696,8 +794,8 @@ app.get('/stream-question', (req, res) => {
           return;
         }
         
-        // We found papers, inform the user
-        const citations = papers.map(paper => ({
+        // Show all found papers
+        const allCitations = papers.map(paper => ({
           title: paper.title || 'N/A',
           abstract: paper.abstract || 'No abstract available',
           year: paper.year || 'N/A',
@@ -707,12 +805,12 @@ app.get('/stream-question', (req, res) => {
           link: paper.paperId ? `https://semanticscholar.org/paper/${paper.paperId}` : 'N/A'
         }));
         
-        // Show found papers
+        // Show all found papers in the UI
         res.write(`data: ${JSON.stringify({ 
           status: 'substage_update', 
           stage: 'papers_found',
-          message: `Found ${citations.length} relevant papers.`,
-          papers: citations.map(p => ({ 
+          message: `Found ${allCitations.length} papers to evaluate.`,
+          papers: allCitations.map(p => ({ 
             title: p.title, 
             authors: p.authors,
             year: p.year,
@@ -720,15 +818,46 @@ app.get('/stream-question', (req, res) => {
           }))
         })}\n\n`);
         
-        // Step 4: Paper analysis stage with citation keys
+        // NEW STEP: Filter papers for relevance
+        res.write(`data: ${JSON.stringify({ 
+          status: 'substage_update', 
+          stage: 'filtering_papers',
+          message: `Evaluating papers for relevance to your question...`
+        })}\n\n`);
+        
+        const filteredPapers = await filterRelevantPapers(question, papers);
+        const filteredCitations = filteredPapers.map(paper => ({
+          title: paper.title || 'N/A',
+          abstract: paper.abstract || 'No abstract available',
+          year: paper.year || 'N/A',
+          citationCount: (paper.citationCount !== undefined) ? paper.citationCount : 0,
+          referenceCount: (paper.referenceCount !== undefined) ? paper.referenceCount : 0,
+          authors: paper.authors ? paper.authors.map(author => author.name) : [],
+          link: paper.paperId ? `https://semanticscholar.org/paper/${paper.paperId}` : 'N/A'
+        }));
+        
+        // Inform which papers were selected
+        res.write(`data: ${JSON.stringify({ 
+          status: 'substage_update', 
+          stage: 'papers_selected',
+          message: `Selected ${filteredCitations.length} most relevant papers for detailed analysis.`,
+          selectedPapers: filteredCitations.map(p => ({ 
+            title: p.title, 
+            authors: p.authors,
+            year: p.year,
+            link: p.link 
+          }))
+        })}\n\n`);
+        
+        // Step 4: Paper analysis stage with filtered citation keys
         res.write(`data: ${JSON.stringify({ 
           status: 'stage_update', 
           stage: 'paper_analysis',
-          message: `Analyzing ${citations.length} research papers...` 
+          message: `Analyzing ${filteredCitations.length} selected research papers...` 
         })}\n\n`);
         
-        // Extract citation keys
-        const citationsWithKeys = citations.map((citation, index) => {
+        // Continue with existing code but using filteredCitations instead of all citations
+        const citationsWithKeys = filteredCitations.map((citation, index) => {
           const authorLastName = citation.authors && citation.authors.length > 0 
             ? citation.authors[0].split(' ').pop() 
             : 'Unknown';
@@ -824,7 +953,7 @@ The citation keys to use are: ${citationsWithKeys.map(c => `[${c.citationKey}]`)
           result: {
             answer: finalAnswer,
             queryWord: queryWord,
-            citations: citations,
+            citations: filteredCitations,
             paperAnalysis: paperAnalysis,
             citationMapping: citationsWithKeys.map(c => ({ 
               key: c.citationKey, 
@@ -836,7 +965,7 @@ The citation keys to use are: ${citationsWithKeys.map(c => `[${c.citationKey}]`)
             processSteps: [
               "Evaluated question scope", 
               "Determined research needed", 
-              `Retrieved ${citations.length} papers`,
+              `Retrieved ${filteredCitations.length} papers`,
               "Analyzed paper content",
               "Generated comprehensive answer with citations"
             ]
