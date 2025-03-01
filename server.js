@@ -804,7 +804,7 @@ async function processQuestion(question) {
       if (!papers || papers.length === 0) {
         logger('WARN', `No papers found for query: "${queryWord}"`);
         return {
-          answer: `I couldn't find relevant scholarly articles for "${question}" using the search term "${queryWord}".`,
+          answer: `我无法找到与"${question}"相关的学术文章，使用搜索词"${queryWord}"。`,
           queryWord: queryWord,
           citations: [],
           processSteps: ["Evaluated question scope", "Determined research needed", "Retrieved 0 papers", "Generated response"]
@@ -1199,7 +1199,7 @@ app.get('/stream-question', async (req, res) => {
   
   if (!question) {
     logger('WARN', `[${requestId}] Missing query parameter`);
-    return res.status(400).json({ error: 'Missing query parameter' });
+    return res.status(400).json({ error: '缺少查询参数' });
   }
   
   // Setup SSE
@@ -1210,7 +1210,7 @@ app.get('/stream-question', async (req, res) => {
   // Send initial connection confirmation
   res.write(`data: ${JSON.stringify({ 
     status: 'connected', 
-    message: 'Stream connection established' 
+    message: '流式连接已建立' 
   })}\n\n`);
   
   // Process function with streaming updates
@@ -1220,7 +1220,7 @@ app.get('/stream-question', async (req, res) => {
       res.write(`data: ${JSON.stringify({ 
         status: 'stage_update', 
         stage: 'evaluation',
-        message: 'Evaluating if your question requires external research...' 
+        message: '正在评估您的问题是否需要外部研究...' 
       })}\n\n`);
       
       const decision = await decideAnswer(question);
@@ -1230,8 +1230,8 @@ app.get('/stream-question', async (req, res) => {
         status: 'substage_update', 
         stage: 'evaluation_complete',
         message: decision.canAnswer 
-          ? 'Your question can be answered directly without research.' 
-          : 'Your question requires searching external research papers.',
+          ? '您的问题可以直接回答，不需要外部研究。' 
+          : '您的问题需要搜索外部研究论文。',
         canAnswer: decision.canAnswer
       })}\n\n`);
       
@@ -1259,7 +1259,7 @@ app.get('/stream-question', async (req, res) => {
         res.write(`data: ${JSON.stringify({ 
           status: 'stage_update', 
           stage: 'paper_retrieval',
-          message: `Searching for relevant scientific papers...` 
+          message: '正在搜索相关学术论文...' 
         })}\n\n`);
 
         // Initiate paper search
@@ -1277,7 +1277,7 @@ app.get('/stream-question', async (req, res) => {
               status: 'papers_finding', 
               papers: formattedPapers,
               count: formattedPapers.length,
-              message: 'Found papers, evaluating relevance...'
+              message: '找到论文，正在评估相关性...'
             })}\n\n`);
           }
           return papers;
@@ -1291,13 +1291,13 @@ app.get('/stream-question', async (req, res) => {
           res.write(`data: ${JSON.stringify({ 
             status: 'stage_update', 
             stage: 'no_papers_found',
-            message: `No relevant papers found for search term "${decision.queryWord}".`
+            message: `未找到与搜索词"${decision.queryWord}"相关的论文。`
           })}\n\n`);
           
           res.write(`data: ${JSON.stringify({ 
             status: 'complete', 
             result: {
-              answer: `I couldn't find relevant scholarly articles for "${question}" using the search term "${decision.queryWord}".`,
+              answer: `我无法找到与"${question}"相关的学术文章，使用搜索词"${decision.queryWord}"。`,
               queryWord: decision.queryWord,
               citations: [],
               processSteps: ["Evaluated question scope", "Determined research needed", "Retrieved 0 papers", "Generated response"]
@@ -1314,7 +1314,7 @@ app.get('/stream-question', async (req, res) => {
         res.write(`data: ${JSON.stringify({ 
           status: 'substage_update', 
           stage: 'papers_found',
-          message: `Found ${formattedPapers.length} papers to evaluate.`,
+          message: `找到${formattedPapers.length}篇论文进行评估。`,
           papers: formattedPapers
         })}\n\n`);
         
@@ -1322,7 +1322,7 @@ app.get('/stream-question', async (req, res) => {
         res.write(`data: ${JSON.stringify({ 
           status: 'substage_update', 
           stage: 'filtering_papers',
-          message: `Evaluating papers for relevance to your question...`
+          message: '正在评估论文与您问题的相关性...'
         })}\n\n`);
         
         const filteredPapers = await filterRelevantPapers(question, papers);
@@ -1341,7 +1341,7 @@ app.get('/stream-question', async (req, res) => {
         res.write(`data: ${JSON.stringify({ 
           status: 'substage_update', 
           stage: 'papers_selected',
-          message: `Selected ${filteredCitations.length} most relevant papers for detailed analysis.`,
+          message: `选择了${filteredCitations.length}篇最相关的论文进行详细分析。`,
           selectedPapers: filteredCitations.map(p => ({ 
             title: p.title, 
             authors: p.authors,
@@ -1354,7 +1354,7 @@ app.get('/stream-question', async (req, res) => {
         res.write(`data: ${JSON.stringify({ 
           status: 'stage_update', 
           stage: 'paper_analysis',
-          message: 'Analyzing selected research papers...' 
+          message: '正在分析所选研究论文...' 
         })}\n\n`);
         
         // Continue with existing code but using filteredCitations instead of all citations
@@ -1388,7 +1388,7 @@ app.get('/stream-question', async (req, res) => {
         res.write(`data: ${JSON.stringify({ 
           status: 'substage_update', 
           stage: 'citations_prepared',
-          message: `Prepared citation keys for analysis`,
+          message: '已准备引用键用于分析',
           citationKeys: citationsWithKeys.map(c => ({ 
             key: c.citationKey, 
             title: c.title 
@@ -1438,7 +1438,7 @@ Briefly summarize how these papers collectively address the question.
         res.write(`data: ${JSON.stringify({ 
           status: 'stage_update', 
           stage: 'answer_generation',
-          message: 'Preparing your final answer with citations...' 
+          message: '正在准备您的最终答案...' 
         })}\n\n`);
         
         // Answer prompt
@@ -1665,7 +1665,7 @@ app.get('/stream-daily-digest', async (req, res) => {
       logger('ERROR', `[${requestId}] 获取每日文章失败:`, error);
       res.status(500).json({
         status: 'error',
-        message: '获取每日文章时出错: ' + error.message
+        message: '获取每日文章时出错：' + error.message
       });
     }
   })();
@@ -1712,14 +1712,15 @@ app.post('/api/daily-digest', async (req, res) => {
   if (dailyDigestCache[userId + '_daily_article'] && 
       isSameDay(new Date(dailyDigestCache[userId + '_daily_article'].timestamp), new Date())) {
     // 返回今日已有文章
-    res.write(`data: ${JSON.stringify({
-      status: 'complete',
-      message: '今日文章已生成',
-      result: dailyDigestCache[userId + '_daily_article'].result,
-      fromCache: true
-    })}\n\n`);
-    res.end();
-    return;
+    console.log(`[${requestId}] 用户 ${userId} 获取今日已生成的文章`);
+    return res.json({
+      status: 'success',
+      message: '今日文章已就绪',
+      article: dailyDigestCache[userId + '_daily_article'].result,
+      timestamp: dailyDigestCache[userId + '_daily_article'].timestamp,
+      topic: dailyDigestCache[userId + '_daily_article'].topic,
+      isNew: false
+    });
   }
   
   // 获取论文并生成分析
