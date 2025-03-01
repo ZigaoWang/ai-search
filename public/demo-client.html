@@ -391,6 +391,27 @@
       background-color: #e1bee7;
       color: #4a148c;
     }
+    
+    /* Source badge styles */
+    .source-badge {
+      display: inline-block;
+      padding: 2px 6px;
+      border-radius: 10px;
+      font-size: 11px;
+      font-weight: bold;
+      margin-left: 5px;
+      margin-right: 5px;
+      color: white;
+      vertical-align: middle;
+    }
+    
+    .source-semantic {
+      background-color: #2c7be5;
+    }
+    
+    .source-core {
+      background-color: #e63757;
+    }
   </style>
   
   <!-- Add Marked.js for markdown rendering -->
@@ -655,13 +676,26 @@
                   papersList.innerHTML = '';
                   
                   data.papers.forEach((paper, index) => {
+                    console.log("Paper data:", paper); // Debug paper data
                     const paperItem = document.createElement('li');
                     paperItem.className = 'paper-item';
                     paperItem.dataset.index = index;
                     
                     // Create citation key from author and year
-                    const authorLastName = paper.authors && paper.authors.length > 0 ? 
-                      paper.authors[0].split(' ').pop() : 'Unknown';
+                    let authorLastName = 'Unknown';
+                    if (typeof paper.authors === 'string') {
+                      // Handle string format
+                      const firstAuthor = paper.authors.split(',')[0];
+                      authorLastName = firstAuthor ? firstAuthor.split(' ').pop() : 'Unknown';
+                    } else if (Array.isArray(paper.authors) && paper.authors.length > 0) {
+                      // Handle array format
+                      const firstAuthor = paper.authors[0];
+                      if (typeof firstAuthor === 'string') {
+                        authorLastName = firstAuthor.split(' ').pop();
+                      } else if (firstAuthor && typeof firstAuthor === 'object' && firstAuthor.name) {
+                        authorLastName = firstAuthor.name.split(' ').pop();
+                      }
+                    }
                     const citationKey = `${authorLastName}${paper.year || ''}`;
                     paperItem.dataset.citationKey = citationKey;
                     
@@ -671,8 +705,19 @@
                     // Create header (always visible)
                     const header = document.createElement('div');
                     header.className = 'paper-header';
+                    
+                    // Determine source badge
+                    let sourceBadgeClass = '';
+                    if (paper.source === 'Semantic Scholar') {
+                      sourceBadgeClass = 'source-semantic';
+                    } else if (paper.source === 'CORE') {
+                      sourceBadgeClass = 'source-core';
+                    }
+                    
+                    const sourceBadge = `<span class="source-badge ${sourceBadgeClass}">${paper.source || 'Unknown'}</span>`;
+                    
                     header.innerHTML = `
-                      <h4>${paper.title} <span class="paper-tag unused">Not cited yet</h4>
+                      <h4>${paper.title} ${sourceBadge} <span class="paper-tag unused">Not cited yet</span></h4>
                       <span class="toggle-icon"></span>
                     `;
                     header.addEventListener('click', () => togglePaperDetails(header));
@@ -682,8 +727,15 @@
                     details.className = 'paper-details';
                     
                     // Prepare authors list
-                    const authorsList = paper.authors && paper.authors.length > 0 ?
-                      paper.authors.join(', ') : 'Unknown';
+                    let authorsList = 'Unknown';
+                    if (typeof paper.authors === 'string') {
+                      authorsList = paper.authors;
+                    } else if (Array.isArray(paper.authors) && paper.authors.length > 0) {
+                      authorsList = paper.authors.map(author => {
+                        if (typeof author === 'string') return author;
+                        return author && author.name ? author.name : 'Unknown';
+                      }).join(', ');
+                    }
                     
                     details.innerHTML = `
                       <div class="meta-info">
@@ -694,7 +746,7 @@
                           <i>📅</i> Year: ${paper.year || 'Unknown'}
                         </div>
                         <div class="meta-item">
-                          <i>🔗</i> <a href="${paper.link}" target="_blank">View on Semantic Scholar</a>
+                          <i>🔗</i> <a href="${paper.link}" target="_blank">View Paper</a>
                         </div>
                       </div>
                       <div class="abstract">

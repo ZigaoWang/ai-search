@@ -27,6 +27,10 @@ app.use(express.static('public'));
 // Semantic Scholar API endpoint for paper search
 const SEMSCHOLAR_BASE_URL = 'https://api.semanticscholar.org/graph/v1/paper/search';
 
+// CORE API endpoint for paper search
+const CORE_BASE_URL = 'https://api.core.ac.uk/v3/search/works';
+const CORE_API_KEY = process.env.CORE_API_KEY; // Make sure to add this to your .env file
+
 // Use the new UniAPI endpoint for chat completions
 const OPENAI_BASE_URL = 'https://api.uniapi.io/v1/chat/completions';
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY; // Ensure your .env file has your UniAPI key
@@ -51,7 +55,7 @@ function logger(level, ...args) {
 }
 
 /**
- * Searches Semantic Scholar for papers matching the query.
+ * Searches academic databases for papers matching the query.
  * Retries if rate-limited.
  *
  * @param {string} query - The search query.
@@ -60,10 +64,210 @@ function logger(level, ...args) {
  * @returns {Promise<Array>} - Resolves to an array of paper objects.
  */
 async function searchPapers(query, limit = 5, retries = 3) {
-  logger('INFO', `Searching Semantic Scholar for: "${query}" (limit: ${limit})`);
+  logger('INFO', `Searching academic databases for: "${query}" (limit: ${limit})`);
+  
+  // Translate query to English if it's not in English
+  let englishQuery = query;
+  if (await detectNonEnglishQuery(query)) {
+    englishQuery = await translateToEnglish(query);
+    logger('INFO', `Translated query from non-English to: "${englishQuery}"`);
+  }
+
+  // Generate alternative search terms
+  const searchTerms = await generateAlternativeSearchTerms(englishQuery);
+  logger('INFO', `Generated search terms: ${searchTerms.join(', ')}`);
+  
+  // Results from different APIs and search terms
+  let allResults = [];
+  
+  // Execute searches in parallel
+  const searchPromises = [];
+  
+  // Search for each term in each database
+  for (const term of searchTerms) {
+    searchPromises.push(
+      searchSemanticScholar(term, Math.ceil(limit/searchTerms.length), retries)
+        .catch(err => {
+          logger('WARN', `Semantic Scholar search failed for term "${term}": ${err.message}`);
+          return [];
+        })
+    );
+    
+    if (CORE_API_KEY) {
+      searchPromises.push(
+        searchCore(term, Math.ceil(limit/searchTerms.length))
+          .catch(err => {
+            logger('WARN', `CORE search failed for term "${term}": ${err.message}`);
+            return [];
+          })
+      );
+    } else {
+      logger('WARN', 'CORE API key not provided. Skipping CORE search.');
+    }
+  }
+  
+  // Wait for all searches to complete
+  const searchResults = await Promise.all(searchPromises);
+  
+  // Combine results
+  for (const results of searchResults) {
+    allResults = allResults.concat(results);
+  }
+  
+  // Remove duplicates based on title similarity
+  const uniqueResults = removeDuplicatePapers(allResults);
+  
+  // Log sources of all unique results
+  const sourceCount = uniqueResults.reduce((counts, paper) => {
+    counts[paper.source] = (counts[paper.source] || 0) + 1;
+    return counts;
+  }, {});
+  logger('INFO', `Sources breakdown: ${JSON.stringify(sourceCount)}`);
+  
+  // Rank and limit results
+  const rankedResults = rankPapersByRelevance(uniqueResults, englishQuery)
+    .slice(0, limit);
+  
+  logger('INFO', `Found ${rankedResults.length} papers across all academic databases`);
+  
+  return rankedResults;
+}
+
+/**
+ * Detects if a query is in a language other than English
+ * @param {string} query - The query to check
+ * @returns {Promise<boolean>} - True if query is non-English
+ */
+async function detectNonEnglishQuery(query) {
+  try {
+    // Simple heuristic: check if query contains non-ASCII characters
+    return /[^\x00-\x7F]/.test(query);
+    
+    // For a more sophisticated approach, we could use the OpenAI API:
+    /*
+    const response = await axios.post(OPENAI_BASE_URL, {
+      model: "gpt-4o",
+      messages: [
+        { 
+          role: "system", 
+          content: "You are a language detection system. Respond with a single word: either 'english' or 'non-english'." 
+        },
+        { role: "user", content: `Detect language: "${query}"` }
+      ],
+      temperature: 0.1,
+      max_tokens: 10
+    }, {
+      headers: {
+        "Authorization": `Bearer ${OPENAI_API_KEY}`,
+        "Content-Type": "application/json"
+      }
+    });
+    
+    const result = response.data.choices[0].message.content.trim().toLowerCase();
+    return result !== "english";
+    */
+  } catch (error) {
+    logger('WARN', `Language detection error: ${error.message}`);
+    return false; // Default to assuming English on error
+  }
+}
+
+/**
+ * Translates a query to English using OpenAI
+ * @param {string} query - The query to translate
+ * @returns {Promise<string>} - English translation
+ */
+async function translateToEnglish(query) {
+  try {
+    const response = await axios.post(OPENAI_BASE_URL, {
+      model: "gpt-4o",
+      messages: [
+        { 
+          role: "system", 
+          content: "You are a translation system. Translate the input text to English, maintaining the academic and technical terminology." 
+        },
+        { role: "user", content: query }
+      ],
+      temperature: 0.1,
+      max_tokens: 100
+    }, {
+      headers: {
+        "Authorization": `Bearer ${OPENAI_API_KEY}`,
+        "Content-Type": "application/json"
+      }
+    });
+    
+    return response.data.choices[0].message.content.trim();
+  } catch (error) {
+    logger('ERROR', `Translation error: ${error.message}`);
+    return query; // Fall back to original query on error
+  }
+}
+
+/**
+ * Generates alternative search terms for a query to maximize search coverage
+ * @param {string} query - The original search query
+ * @returns {Promise<Array<string>>} - Array of search terms including the original
+ */
+async function generateAlternativeSearchTerms(query) {
+  try {
+    // Start with the original query
+    const searchTerms = [query];
+    
+    // For shorter queries, use the OpenAI API to generate alternatives
+    if (query.length <= 100) {
+      const response = await axios.post(OPENAI_BASE_URL, {
+        model: "gpt-4o",
+        messages: [
+          { 
+            role: "system", 
+            content: "You are a research assistant helping to optimize academic searches. Generate 2-3 alternative academic search queries that would help find relevant papers on this topic. Focus on using precise academic terminology and different phrasings. Respond with just a JSON array of strings with no explanation." 
+          },
+          { role: "user", content: query }
+        ],
+        temperature: 0.7,
+        max_tokens: 150
+      }, {
+        headers: {
+          "Authorization": `Bearer ${OPENAI_API_KEY}`,
+          "Content-Type": "application/json"
+        }
+      });
+      
+      // Parse the response to get alternative search terms
+      const content = response.data.choices[0].message.content.trim();
+      const cleanedContent = content.replace(/```json|```/g, '').trim();
+      
+      try {
+        const alternatives = JSON.parse(cleanedContent);
+        if (Array.isArray(alternatives)) {
+          // Add alternatives to the search terms
+          alternatives.forEach(term => {
+            if (term && typeof term === 'string' && !searchTerms.includes(term)) {
+              searchTerms.push(term);
+            }
+          });
+        }
+      } catch (parseError) {
+        logger('WARN', `Failed to parse alternative search terms: ${parseError.message}`);
+      }
+    }
+    
+    // Return unique search terms
+    return [...new Set(searchTerms)];
+  } catch (error) {
+    logger('WARN', `Error generating alternative search terms: ${error.message}`);
+    return [query]; // Fall back to just the original query
+  }
+}
+
+/**
+ * Searches Semantic Scholar API with a specific query term
+ */
+async function searchSemanticScholar(query, limit = 5, retries = 3) {
+  logger('DEBUG', `Searching Semantic Scholar for: "${query}"`);
   
   try {
-    logger('DEBUG', `Making request to Semantic Scholar API`);
     const response = await axios.get(SEMSCHOLAR_BASE_URL, {
       params: {
         query: query,
@@ -74,23 +278,166 @@ async function searchPapers(query, limit = 5, retries = 3) {
 
     if (response.status === 200 && response.data && response.data.data) {
       const papers = response.data.data;
-      logger('INFO', `Found ${papers.length} papers matching query`);
-      logger('DEBUG', `Paper titles: ${papers.map(p => p.title).join(', ')}`);
-      return papers;
+      logger('DEBUG', `Found ${papers.length} papers on Semantic Scholar`);
+      
+      return papers.map(paper => ({
+        title: paper.title || 'No title available',
+        abstract: paper.abstract || 'No abstract available',
+        year: paper.year || 'Unknown',
+        citationCount: paper.citationCount || 0,
+        referenceCount: paper.referenceCount || 0,
+        // Handle authors consistently
+        authors: typeof paper.authors === 'string' ? paper.authors : 
+                 (Array.isArray(paper.authors) ? 
+                   paper.authors.map(author => {
+                     if (typeof author === 'string') return author;
+                     return (author && author.name) ? author.name : 'Unknown';
+                   }).join(', ') 
+                 : 'Unknown'),
+        link: paper.url || `https://www.semanticscholar.org/paper/${paper.paperId}`,
+        source: 'Semantic Scholar'
+      }));
     } else {
       logger('ERROR', `Unexpected response from Semantic Scholar API`, response.status, response.data);
-      throw new Error("Error: Unable to fetch data from Semantic Scholar API.");
+      return [];
     }
   } catch (error) {
     if (error.response && error.response.status === 429 && retries > 0) {
       logger('WARN', `Rate limit reached (429). Retrying in 3 seconds... (${retries} retries left)`);
       await sleep(3000);
-      return searchPapers(query, limit, retries - 1);
+      return searchSemanticScholar(query, limit, retries - 1);
     } else {
       logger('ERROR', `Semantic Scholar API error:`, error.message);
       throw error;
     }
   }
+}
+
+/**
+ * Searches CORE API with a specific query term
+ */
+async function searchCore(query, limit = 5) {
+  logger('INFO', `Searching CORE for: "${query}"`);
+  
+  try {
+    if (!CORE_API_KEY) {
+      logger('ERROR', 'CORE API key not provided');
+      return [];
+    }
+    
+    logger('INFO', `Calling CORE API with URL: ${CORE_BASE_URL} and API key ${CORE_API_KEY ? 'is present' : 'is missing'}`);
+    const response = await axios.post(CORE_BASE_URL, {
+      q: query,
+      limit: limit,
+      scroll: false
+    }, {
+      headers: {
+        "Authorization": `Bearer ${CORE_API_KEY}`,
+        "Content-Type": "application/json"
+      }
+    });
+
+    if (response.status === 200 && response.data && response.data.results) {
+      const papers = response.data.results;
+      logger('INFO', `Found ${papers.length} papers on CORE`);
+      
+      return papers.map(paper => ({
+        title: paper.title || 'N/A',
+        abstract: paper.abstract || 'No abstract available',
+        year: paper.yearPublished ? paper.yearPublished.toString() : 'N/A',
+        citationCount: 0, // CORE doesn't provide citation count in basic response
+        referenceCount: 0,
+        authors: typeof paper.authors === 'string' ? paper.authors : 
+                 (Array.isArray(paper.authors) ? paper.authors.map(author => typeof author === 'string' ? author : (author.name || 'Unknown')).join(', ') : 'Unknown'),
+        link: paper.downloadUrl || paper.identifiers.find(id => id.includes('doi.org')) || paper.repositoryDocument?.pdfUrl || 'Unknown',
+        source: 'CORE'
+      }));
+    } else {
+      logger('ERROR', `Unexpected response from CORE API`, response.status, response.data);
+      return [];
+    }
+  } catch (error) {
+    logger('ERROR', `CORE API error:`, error.message);
+    throw error;
+  }
+}
+
+/**
+ * Removes duplicate papers based on title similarity
+ */
+function removeDuplicatePapers(papers) {
+  const uniquePapers = [];
+  const processedTitles = new Set();
+  
+  // Helper function to normalize titles for comparison
+  const normalizeTitle = (title) => {
+    return title.toLowerCase()
+      .replace(/[^\w\s]/g, '') // Remove punctuation
+      .replace(/\s+/g, ' ')    // Normalize whitespace
+      .trim();
+  };
+  
+  for (const paper of papers) {
+    const normalizedTitle = normalizeTitle(paper.title);
+    
+    // Check if we've already seen a very similar title
+    let isDuplicate = false;
+    for (const existingTitle of processedTitles) {
+      // Simple similarity check - can be enhanced with more sophisticated algorithms
+      if (normalizedTitle.length > 0 && 
+          (normalizedTitle.includes(existingTitle) || 
+           existingTitle.includes(normalizedTitle))) {
+        isDuplicate = true;
+        break;
+      }
+    }
+    
+    if (!isDuplicate) {
+      processedTitles.add(normalizedTitle);
+      uniquePapers.push(paper);
+    }
+  }
+  
+  logger('INFO', `Removed ${papers.length - uniquePapers.length} duplicate papers`);
+  return uniquePapers;
+}
+
+/**
+ * Ranks papers by relevance to the query
+ */
+function rankPapersByRelevance(papers, query) {
+  // Create a simple scoring system
+  const scoredPapers = papers.map(paper => {
+    let score = 0;
+    
+    // Base score components
+    const hasAbstract = paper.abstract && paper.abstract !== 'No abstract available';
+    const hasCitations = paper.citationCount > 0;
+    const hasAuthors = paper.authors && paper.authors.length > 0;
+    
+    // Recent papers get higher scores (max 5 points for current year)
+    const currentYear = new Date().getFullYear();
+    const yearDiff = paper.year && !isNaN(paper.year) ? currentYear - parseInt(paper.year) : 10;
+    const recencyScore = Math.max(0, 5 - yearDiff); // 5 points for current year, decreasing by 1 each year
+    
+    // Citation count (normalized, max 10 points)
+    const citationScore = Math.min(10, Math.log(paper.citationCount + 1) * 2);
+    
+    // Content relevance (basic implementation)
+    const titleRelevance = paper.title.toLowerCase().includes(query.toLowerCase()) ? 5 : 0;
+    const abstractRelevance = hasAbstract && paper.abstract.toLowerCase().includes(query.toLowerCase()) ? 3 : 0;
+    
+    // Completeness score (max 5 points)
+    const completenessScore = (hasAbstract ? 2 : 0) + (hasCitations ? 1 : 0) + (hasAuthors ? 2 : 0);
+    
+    // Calculate final score
+    score = recencyScore + citationScore + titleRelevance + abstractRelevance + completenessScore;
+    
+    return { ...paper, relevanceScore: score };
+  });
+  
+  // Sort by score (descending)
+  return scoredPapers.sort((a, b) => b.relevanceScore - a.relevanceScore);
 }
 
 /**
@@ -100,7 +447,7 @@ async function searchPapers(query, limit = 5, retries = 3) {
  *  - { "canAnswer": false, "queryWord": "<suggested keyword>" }
  *
  * @param {string} question - The user question.
- * @returns {Promise<Object>} - Resolves to the parsed JSON result.
+ * @returns {Promise<Object>} - The parsed JSON result.
  */
 async function decideAnswer(question) {
   logger('INFO', `Determining if question can be answered internally: "${question}"`);
@@ -140,7 +487,7 @@ Question: "${question}"
     logger('DEBUG', `Raw OpenAI response: ${reply}`);
     
     // Remove markdown code blocks if present
-    reply = reply.replace(/```(?:json)?\s*([\s\S]*?)\s*```/g, '$1').trim();
+    reply = reply.replace(/```json|```/g, '').trim();
     
     try {
       const parsedResponse = JSON.parse(reply);
@@ -155,7 +502,7 @@ Question: "${question}"
     }
   } catch (error) {
     logger('ERROR', `OpenAI API error:`, error.message);
-    throw new Error("OpenAI API error: " + error.message);
+    throw error;
   }
 }
 
@@ -175,9 +522,22 @@ async function generateAnswerWithCitations(question, citations) {
   // Extract key information from each citation
   const citationsWithKeys = citations.map((citation, index) => {
     // Create a unique citation key based on first author's last name and year
-    const authorLastName = citation.authors && citation.authors.length > 0 
-      ? citation.authors[0].split(' ').pop() 
-      : 'Unknown';
+    let authorLastName = 'Unknown';
+    
+    if (typeof citation.authors === 'string') {
+      // If authors is already a string, extract the first author's last name
+      const firstAuthor = citation.authors.split(',')[0];
+      authorLastName = firstAuthor ? firstAuthor.split(' ').pop() : 'Unknown';
+    } else if (Array.isArray(citation.authors) && citation.authors.length > 0) {
+      // If authors is an array, get the first author
+      const firstAuthor = citation.authors[0];
+      if (typeof firstAuthor === 'string') {
+        authorLastName = firstAuthor.split(' ').pop();
+      } else if (firstAuthor && firstAuthor.name) {
+        authorLastName = firstAuthor.name.split(' ').pop();
+      }
+    }
+    
     const citationKey = `${authorLastName}${citation.year || ''}`;
     
     return {
@@ -194,7 +554,7 @@ async function generateAnswerWithCitations(question, citations) {
     return `Citation [${citation.citationKey}]:
 Title: ${citation.title}
 Abstract: ${citation.abstract}
-Authors: ${citation.authors.join(', ')}
+Authors: ${typeof citation.authors === 'string' ? citation.authors : (Array.isArray(citation.authors) ? citation.authors.map(a => typeof a === 'string' ? a : (a.name || 'Unknown')).join(', ') : 'Unknown')}
 Year: ${citation.year}
 Key Points: Please extract 3-5 key points from this paper relevant to the question.
 `;
@@ -303,7 +663,7 @@ The citation keys to use are: ${citationsWithKeys.map(c => `[${c.citationKey}]`)
     };
   } catch (error) {
     logger('ERROR', `OpenAI API error in generating answer:`, error.message);
-    throw new Error("Failed to generate answer with citations: " + error.message);
+    throw error;
   }
 }
 
@@ -351,8 +711,9 @@ async function processQuestion(question) {
         year: paper.year || 'N/A',
         citationCount: (paper.citationCount !== undefined) ? paper.citationCount : 0,
         referenceCount: (paper.referenceCount !== undefined) ? paper.referenceCount : 0,
-        authors: paper.authors ? paper.authors.map(author => author.name) : [],
-        link: paper.paperId ? `https://semanticscholar.org/paper/${paper.paperId}` : 'N/A'
+        authors: (typeof paper.authors === 'string') ? paper.authors : 
+                 (Array.isArray(paper.authors) ? paper.authors.map(a => typeof a === 'string' ? a : (a.name || 'Unknown')).join(', ') : 'Unknown'),
+        link: paper.link || 'N/A'
       }));
       
       logger('INFO', `Retrieved ${citations.length} papers for analysis`);
@@ -612,7 +973,7 @@ async function filterRelevantPapers(question, papers, maxPapers = 5) {
       title: paper.title || 'No title available',
       abstract: paper.abstract || 'No abstract available',
       year: paper.year || 'Unknown',
-      authors: paper.authors ? paper.authors.map(a => a).join(', ') : 'Unknown'
+      authors: typeof paper.authors === 'string' ? paper.authors : (Array.isArray(paper.authors) ? paper.authors.map(author => typeof author === 'string' ? author : (author.name || 'Unknown')).join(', ') : 'Unknown')
     };
   });
   
@@ -652,7 +1013,7 @@ ${JSON.stringify(paperSummaries, null, 2)}
     });
 
     let reply = response.data.choices[0].message.content.trim();
-    // Clean any markdown code blocks if present
+    // Clean any markdown formatting from the response
     reply = reply.replace(/```json|```/g, '').trim();
     
     try {
@@ -794,28 +1155,15 @@ app.get('/stream-question', (req, res) => {
           return;
         }
         
-        // Show all found papers
-        const allCitations = papers.map(paper => ({
-          title: paper.title || 'N/A',
-          abstract: paper.abstract || 'No abstract available',
-          year: paper.year || 'N/A',
-          citationCount: (paper.citationCount !== undefined) ? paper.citationCount : 0,
-          referenceCount: (paper.referenceCount !== undefined) ? paper.referenceCount : 0,
-          authors: paper.authors ? paper.authors.map(author => author.name) : [],
-          link: paper.paperId ? `https://semanticscholar.org/paper/${paper.paperId}` : 'N/A'
-        }));
+        // Format papers for client response
+        const formattedPapers = formatPapersForClientResponse(papers);
         
-        // Show all found papers in the UI
+        // Show all found papers
         res.write(`data: ${JSON.stringify({ 
           status: 'substage_update', 
           stage: 'papers_found',
-          message: `Found ${allCitations.length} papers to evaluate.`,
-          papers: allCitations.map(p => ({ 
-            title: p.title, 
-            authors: p.authors,
-            year: p.year,
-            link: p.link 
-          }))
+          message: `Found ${formattedPapers.length} papers to evaluate.`,
+          papers: formattedPapers
         })}\n\n`);
         
         // NEW STEP: Filter papers for relevance
@@ -832,8 +1180,8 @@ app.get('/stream-question', (req, res) => {
           year: paper.year || 'N/A',
           citationCount: (paper.citationCount !== undefined) ? paper.citationCount : 0,
           referenceCount: (paper.referenceCount !== undefined) ? paper.referenceCount : 0,
-          authors: paper.authors ? paper.authors.map(author => author.name) : [],
-          link: paper.paperId ? `https://semanticscholar.org/paper/${paper.paperId}` : 'N/A'
+          authors: typeof paper.authors === 'string' ? paper.authors : (Array.isArray(paper.authors) ? paper.authors.map(author => typeof author === 'string' ? author : (author.name || 'Unknown')).join(', ') : 'Unknown'),
+          link: paper.link || 'N/A'
         }));
         
         // Inform which papers were selected
@@ -858,9 +1206,22 @@ app.get('/stream-question', (req, res) => {
         
         // Continue with existing code but using filteredCitations instead of all citations
         const citationsWithKeys = filteredCitations.map((citation, index) => {
-          const authorLastName = citation.authors && citation.authors.length > 0 
-            ? citation.authors[0].split(' ').pop() 
-            : 'Unknown';
+          let authorLastName = 'Unknown';
+          
+          if (typeof citation.authors === 'string') {
+            // If authors is already a string, extract the first author's last name
+            const firstAuthor = citation.authors.split(',')[0];
+            authorLastName = firstAuthor ? firstAuthor.split(' ').pop() : 'Unknown';
+          } else if (Array.isArray(citation.authors) && citation.authors.length > 0) {
+            // If authors is an array, get the first author
+            const firstAuthor = citation.authors[0];
+            if (typeof firstAuthor === 'string') {
+              authorLastName = firstAuthor.split(' ').pop();
+            } else if (firstAuthor && firstAuthor.name) {
+              authorLastName = firstAuthor.name.split(' ').pop();
+            }
+          }
+          
           const citationKey = `${authorLastName}${citation.year || ''}`;
           
           return {
@@ -886,7 +1247,7 @@ app.get('/stream-question', (req, res) => {
           return `Citation [${citation.citationKey}]:
 Title: ${citation.title}
 Abstract: ${citation.abstract}
-Authors: ${citation.authors.join(', ')}
+Authors: ${typeof citation.authors === 'string' ? citation.authors : (Array.isArray(citation.authors) ? citation.authors.join(', ') : 'Unknown')}
 Year: ${citation.year}
 Key Points: Please extract 3-5 key points from this paper relevant to the question.
 `;
@@ -1050,3 +1411,16 @@ app.get('/api/system-status', (req, res) => {
     timestamp: new Date().toISOString()
   });
 });
+
+function formatPapersForClientResponse(papers) {
+  return papers.map(paper => {
+    return {
+      title: paper.title || 'No title available',
+      abstract: paper.abstract || 'No abstract available',
+      year: paper.year || 'Unknown',
+      authors: typeof paper.authors === 'string' ? paper.authors : (Array.isArray(paper.authors) ? paper.authors.map(a => typeof a === 'string' ? a : (a.name || 'Unknown')).join(', ') : 'Unknown'),
+      source: paper.source || 'Unknown Source',
+      link: paper.link || '#'
+    };
+  });
+}
