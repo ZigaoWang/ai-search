@@ -66,6 +66,18 @@ function logger(level, ...args) {
 async function searchPapers(query, limit = 5, retries = 3) {
   logger('INFO', `Searching academic databases for: "${query}" (limit: ${limit})`);
   
+  // Check cache first
+  const cacheKey = query.toLowerCase().trim();
+  if (searchCache.has(cacheKey)) {
+    const cachedItem = searchCache.get(cacheKey);
+    if (Date.now() - cachedItem.timestamp < CACHE_TTL) {
+      logger('INFO', `Using cached results for query: "${query}"`);
+      return cachedItem.results;
+    } else {
+      searchCache.delete(cacheKey); // Remove expired item
+    }
+  }
+  
   // Translate query to English if it's not in English
   let englishQuery = query;
   if (await detectNonEnglishQuery(query)) {
@@ -83,8 +95,33 @@ async function searchPapers(query, limit = 5, retries = 3) {
   // Execute searches in parallel
   const searchPromises = [];
   
-  // Search for each term in each database
-  for (const term of searchTerms) {
+  // First search with the primary term to get quick results
+  const primaryPromises = [
+    searchSemanticScholar(searchTerms[0], Math.ceil(limit/2), retries)
+      .catch(err => {
+        logger('WARN', `Primary Semantic Scholar search failed: ${err.message}`);
+        return [];
+      })
+  ];
+  
+  if (CORE_API_KEY) {
+    primaryPromises.push(
+      searchCore(searchTerms[0], Math.ceil(limit/2))
+        .catch(err => {
+          logger('WARN', `Primary CORE search failed: ${err.message}`);
+          return [];
+        })
+    );
+  }
+  
+  // Wait for primary results first
+  const primaryResultsArrays = await Promise.all(primaryPromises);
+  for (const results of primaryResultsArrays) {
+    allResults = allResults.concat(results);
+  }
+  
+  // Now search with all the alternative terms in parallel
+  for (const term of searchTerms.slice(1)) {  // Skip the first term (already searched)
     searchPromises.push(
       searchSemanticScholar(term, Math.ceil(limit/searchTerms.length), retries)
         .catch(err => {
@@ -101,12 +138,10 @@ async function searchPapers(query, limit = 5, retries = 3) {
             return [];
           })
       );
-    } else {
-      logger('WARN', 'CORE API key not provided. Skipping CORE search.');
     }
   }
   
-  // Wait for all searches to complete
+  // Wait for all additional searches to complete
   const searchResults = await Promise.all(searchPromises);
   
   // Combine results
@@ -130,8 +165,15 @@ async function searchPapers(query, limit = 5, retries = 3) {
   
   logger('INFO', `Found ${rankedResults.length} papers across all academic databases`);
   
+  // Cache the results
+  searchCache.set(cacheKey, { results: rankedResults, timestamp: Date.now() });
+  
   return rankedResults;
 }
+
+// Add a simple in-memory cache for search results
+const searchCache = new Map();
+const CACHE_TTL = 60 * 60 * 1000; // 1 hour in milliseconds
 
 /**
  * Detects if a query is in a language other than English
@@ -1052,7 +1094,7 @@ ${JSON.stringify(paperSummaries, null, 2)}
  * 
  * Process a question with detailed streaming updates and token-by-token streaming
  */
-app.get('/stream-question', (req, res) => {
+app.get('/stream-question', async (req, res) => {
   const requestId = Math.random().toString(36).substring(2, 15);
   const question = req.query.query;
   
@@ -1115,38 +1157,50 @@ app.get('/stream-question', (req, res) => {
         })}\n\n`);
         res.end();
       } else {
-        // Step 2: Show search keyword being used
-        const queryWord = decision.queryWord;
-        
-        res.write(`data: ${JSON.stringify({ 
-          status: 'substage_update', 
-          stage: 'search_term_selected',
-          message: `Using search term: "${queryWord}"`,
-          queryWord: queryWord
-        })}\n\n`);
-        
-        // Step 3: Fetch papers
+        // Stage 2: Academic search
         res.write(`data: ${JSON.stringify({ 
           status: 'stage_update', 
           stage: 'paper_retrieval',
           message: `Searching for relevant scientific papers...` 
         })}\n\n`);
+
+        // Initiate paper search
+        let hasSentInitialResults = false;
+        const paperSearchPromise = searchPapers(decision.queryWord, 5, 3).then(papers => {
+          // Get the first batch of results and send them immediately
+          if (!hasSentInitialResults && papers.length > 0) {
+            hasSentInitialResults = true;
+            
+            // Format papers for an initial quick response
+            const formattedPapers = formatPapersForClientResponse(papers);
+            
+            // Let the client know that papers are being found
+            res.write(`data: ${JSON.stringify({ 
+              status: 'papers_finding', 
+              papers: formattedPapers,
+              count: formattedPapers.length,
+              message: 'Found papers, evaluating relevance...'
+            })}\n\n`);
+          }
+          return papers;
+        });
         
-        const papers = await searchPapers(queryWord);
+        // Get final papers
+        const papers = await paperSearchPromise;
         
         // Update with paper search results
         if (!papers || papers.length === 0) {
           res.write(`data: ${JSON.stringify({ 
             status: 'stage_update', 
             stage: 'no_papers_found',
-            message: `No relevant papers found for search term "${queryWord}".`
+            message: `No relevant papers found for search term "${decision.queryWord}".`
           })}\n\n`);
           
           res.write(`data: ${JSON.stringify({ 
             status: 'complete', 
             result: {
-              answer: `I couldn't find relevant scholarly articles for "${question}" using the search term "${queryWord}".`,
-              queryWord: queryWord,
+              answer: `I couldn't find relevant scholarly articles for "${question}" using the search term "${decision.queryWord}".`,
+              queryWord: decision.queryWord,
               citations: [],
               processSteps: ["Evaluated question scope", "Determined research needed", "Retrieved 0 papers", "Generated response"]
             }
@@ -1313,7 +1367,7 @@ The citation keys to use are: ${citationsWithKeys.map(c => `[${c.citationKey}]`)
           status: 'complete', 
           result: {
             answer: finalAnswer,
-            queryWord: queryWord,
+            queryWord: decision.queryWord,
             citations: filteredCitations,
             paperAnalysis: paperAnalysis,
             citationMapping: citationsWithKeys.map(c => ({ 

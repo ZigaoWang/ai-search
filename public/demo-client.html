@@ -637,6 +637,23 @@
                 updateStage(data.stage, true);
                 break;
                 
+              case 'papers_finding':
+                // Display initial papers as they're being found
+                papersContainer.style.display = 'block';
+                
+                // If this is the first batch, clear the list
+                if (papersList.innerHTML === '') {
+                  papersList.innerHTML = '';
+                }
+                
+                // Display the papers we have so far
+                data.papers.forEach((paper, index) => {
+                  displayPaper(paper, index);
+                });
+                
+                setStatus('Finding and processing papers...');
+                break;
+                
               case 'substage_update':
                 if (data.stage === 'evaluation_complete') {
                   // Mark evaluation stage as complete
@@ -676,97 +693,10 @@
                   papersList.innerHTML = '';
                   
                   data.papers.forEach((paper, index) => {
-                    console.log("Paper data:", paper); // Debug paper data
-                    const paperItem = document.createElement('li');
-                    paperItem.className = 'paper-item';
-                    paperItem.dataset.index = index;
-                    
-                    // Create citation key from author and year
-                    let authorLastName = 'Unknown';
-                    if (typeof paper.authors === 'string') {
-                      // Handle string format
-                      const firstAuthor = paper.authors.split(',')[0];
-                      authorLastName = firstAuthor ? firstAuthor.split(' ').pop() : 'Unknown';
-                    } else if (Array.isArray(paper.authors) && paper.authors.length > 0) {
-                      // Handle array format
-                      const firstAuthor = paper.authors[0];
-                      if (typeof firstAuthor === 'string') {
-                        authorLastName = firstAuthor.split(' ').pop();
-                      } else if (firstAuthor && typeof firstAuthor === 'object' && firstAuthor.name) {
-                        authorLastName = firstAuthor.name.split(' ').pop();
-                      }
-                    }
-                    const citationKey = `${authorLastName}${paper.year || ''}`;
-                    paperItem.dataset.citationKey = citationKey;
-                    
-                    // Store reference to this paper element
-                    paperElements[citationKey] = paperItem;
-                    
-                    // Create header (always visible)
-                    const header = document.createElement('div');
-                    header.className = 'paper-header';
-                    
-                    // Determine source badge
-                    let sourceBadgeClass = '';
-                    if (paper.source === 'Semantic Scholar') {
-                      sourceBadgeClass = 'source-semantic';
-                    } else if (paper.source === 'CORE') {
-                      sourceBadgeClass = 'source-core';
-                    }
-                    
-                    const sourceBadge = `<span class="source-badge ${sourceBadgeClass}">${paper.source || 'Unknown'}</span>`;
-                    
-                    header.innerHTML = `
-                      <h4>${paper.title} ${sourceBadge} <span class="paper-tag unused">Not cited yet</span></h4>
-                      <span class="toggle-icon"></span>
-                    `;
-                    header.addEventListener('click', () => togglePaperDetails(header));
-                    
-                    // Create details (expandable)
-                    const details = document.createElement('div');
-                    details.className = 'paper-details';
-                    
-                    // Prepare authors list
-                    let authorsList = 'Unknown';
-                    if (typeof paper.authors === 'string') {
-                      authorsList = paper.authors;
-                    } else if (Array.isArray(paper.authors) && paper.authors.length > 0) {
-                      authorsList = paper.authors.map(author => {
-                        if (typeof author === 'string') return author;
-                        return author && author.name ? author.name : 'Unknown';
-                      }).join(', ');
-                    }
-                    
-                    details.innerHTML = `
-                      <div class="meta-info">
-                        <div class="meta-item">
-                          <i>👥</i> Authors: ${authorsList}
-                        </div>
-                        <div class="meta-item">
-                          <i>📅</i> Year: ${paper.year || 'Unknown'}
-                        </div>
-                        <div class="meta-item">
-                          <i>🔗</i> <a href="${paper.link}" target="_blank">View Paper</a>
-                        </div>
-                      </div>
-                      <div class="abstract">
-                        <strong>Abstract:</strong> ${paper.abstract || 'No abstract available'}
-                      </div>
-                    `;
-                    
-                    // Append header and details to paper item
-                    paperItem.appendChild(header);
-                    paperItem.appendChild(details);
-                    papersList.appendChild(paperItem);
+                    displayPaper(paper, index);
                   });
                   
-                  // Automatically expand the first paper
-                  if (papersList.firstChild) {
-                    const firstHeader = papersList.firstChild.querySelector('.paper-header');
-                    togglePaperDetails(firstHeader);
-                  }
-                  
-                  setStatus(`Found ${data.papers.length} relevant papers for your question.`, 'success');
+                  setStatus(`Found ${data.papers.length} relevant papers.`);
                 } else if (data.stage === 'filtering_papers') {
                   setStatus(`Evaluating papers for relevance to your question...`, 'info');
                 } else if (data.stage === 'papers_selected') {
@@ -946,6 +876,90 @@
             e.preventDefault();
           });
         });
+      }
+      
+      function displayPaper(paper, index) {
+        const paperItem = document.createElement('li');
+        paperItem.className = 'paper-item';
+        paperItem.dataset.index = index;
+        
+        // Create citation key from author and year
+        let authorLastName = 'Unknown';
+        if (typeof paper.authors === 'string') {
+          // Handle string format
+          const firstAuthor = paper.authors.split(',')[0];
+          authorLastName = firstAuthor ? firstAuthor.split(' ').pop() : 'Unknown';
+        } else if (Array.isArray(paper.authors) && paper.authors.length > 0) {
+          // Handle array format
+          const firstAuthor = paper.authors[0];
+          if (typeof firstAuthor === 'string') {
+            authorLastName = firstAuthor.split(' ').pop();
+          } else if (firstAuthor && typeof firstAuthor === 'object' && firstAuthor.name) {
+            authorLastName = firstAuthor.name.split(' ').pop();
+          }
+        }
+        const citationKey = `${authorLastName}${paper.year || ''}`;
+        paperItem.dataset.citationKey = citationKey;
+        
+        // Store reference to this paper element
+        paperElements[citationKey] = paperItem;
+        
+        // Create header (always visible)
+        const header = document.createElement('div');
+        header.className = 'paper-header';
+        
+        // Determine source badge
+        let sourceBadgeClass = '';
+        if (paper.source === 'Semantic Scholar') {
+          sourceBadgeClass = 'source-semantic';
+        } else if (paper.source === 'CORE') {
+          sourceBadgeClass = 'source-core';
+        }
+        
+        const sourceBadge = `<span class="source-badge ${sourceBadgeClass}">${paper.source || 'Unknown'}</span>`;
+        
+        header.innerHTML = `
+          <h4>${paper.title} ${sourceBadge} <span class="paper-tag unused">Not cited yet</span></h4>
+          <span class="toggle-icon"></span>
+        `;
+        header.addEventListener('click', () => togglePaperDetails(header));
+        
+        // Create details (expandable)
+        const details = document.createElement('div');
+        details.className = 'paper-details';
+        
+        // Prepare authors list
+        let authorsList = 'Unknown';
+        if (typeof paper.authors === 'string') {
+          authorsList = paper.authors;
+        } else if (Array.isArray(paper.authors) && paper.authors.length > 0) {
+          authorsList = paper.authors.map(author => {
+            if (typeof author === 'string') return author;
+            return author && author.name ? author.name : 'Unknown';
+          }).join(', ');
+        }
+        
+        details.innerHTML = `
+          <div class="meta-info">
+            <div class="meta-item">
+              <i>👥</i> Authors: ${authorsList}
+            </div>
+            <div class="meta-item">
+              <i>📅</i> Year: ${paper.year || 'Unknown'}
+            </div>
+            <div class="meta-item">
+              <i>🔗</i> <a href="${paper.link}" target="_blank">View Paper</a>
+            </div>
+          </div>
+          <div class="abstract">
+            <strong>Abstract:</strong> ${paper.abstract || 'No abstract available'}
+          </div>
+        `;
+        
+        // Append header and details to paper item
+        paperItem.appendChild(header);
+        paperItem.appendChild(details);
+        papersList.appendChild(paperItem);
       }
       
       // Handle form submission
