@@ -63,7 +63,7 @@ function logger(level, ...args) {
  * @param {number} retries - Number of retries if rate-limited.
  * @returns {Promise<Array>} - Resolves to an array of paper objects.
  */
-async function searchPapers(query, limit = 5, retries = 3) {
+async function searchPapers(query, limit = 10, retries = 3) {
   logger('INFO', `Searching academic databases for: "${query}" (limit: ${limit})`);
   
   // Check cache first
@@ -149,26 +149,85 @@ async function searchPapers(query, limit = 5, retries = 3) {
     allResults = allResults.concat(results);
   }
   
-  // Remove duplicates based on title similarity
+  logger('INFO', `Found ${allResults.length} papers across all search terms and APIs before deduplication`);
+  
+  // Remove duplicates
   const uniqueResults = removeDuplicatePapers(allResults);
+  logger('INFO', `Removed ${allResults.length - uniqueResults.length} duplicate papers`);
   
-  // Log sources of all unique results
-  const sourceCount = uniqueResults.reduce((counts, paper) => {
-    counts[paper.source] = (counts[paper.source] || 0) + 1;
-    return counts;
-  }, {});
-  logger('INFO', `Sources breakdown: ${JSON.stringify(sourceCount)}`);
+  // Ensure we have a good mix of sources - rebalance if needed
+  const rebalancedResults = balanceResultSources(uniqueResults, limit);
   
-  // Rank and limit results
-  const rankedResults = rankPapersByRelevance(uniqueResults, englishQuery)
-    .slice(0, limit);
+  // Rank papers by relevance to the query
+  const rankedResults = rankPapersByRelevance(rebalancedResults, englishQuery)
+    .slice(0, Math.max(15, limit * 2)); // Increase result limit to return more papers
   
   logger('INFO', `Found ${rankedResults.length} papers across all academic databases`);
+  
+  // Count sources in final results for logging
+  const sourceCounts = {};
+  rankedResults.forEach(paper => {
+    sourceCounts[paper.source] = (sourceCounts[paper.source] || 0) + 1;
+  });
+  logger('INFO', `Sources distribution: ${JSON.stringify(sourceCounts)}`);
   
   // Cache the results
   searchCache.set(cacheKey, { results: rankedResults, timestamp: Date.now() });
   
   return rankedResults;
+}
+
+/**
+ * Balances the results to ensure a good mix of sources
+ */
+function balanceResultSources(papers, targetTotal) {
+  if (!papers || papers.length === 0) return [];
+  
+  // Count papers by source
+  const bySource = {};
+  papers.forEach(paper => {
+    const source = paper.source || 'Unknown';
+    if (!bySource[source]) bySource[source] = [];
+    bySource[source].push(paper);
+  });
+  
+  // Get list of sources
+  const sources = Object.keys(bySource);
+  if (sources.length <= 1) return papers; // No balancing needed for single source
+  
+  // Prepare the balanced output
+  const balanced = [];
+  const perSourceTarget = Math.ceil(targetTotal / sources.length);
+  
+  // First round: take up to perSourceTarget from each source
+  sources.forEach(source => {
+    const sourcePapers = bySource[source];
+    for (let i = 0; i < Math.min(perSourceTarget, sourcePapers.length); i++) {
+      balanced.push(sourcePapers[i]);
+    }
+  });
+  
+  // Second round: fill with any remaining papers from any source
+  // to reach targetTotal if we didn't get enough in first round
+  if (balanced.length < targetTotal) {
+    const remaining = [];
+    sources.forEach(source => {
+      const taken = Math.min(perSourceTarget, bySource[source].length);
+      remaining.push(...bySource[source].slice(taken));
+    });
+    
+    // Add remaining papers until we reach targetTotal
+    remaining.sort((a, b) => {
+      // Sort by relevance, citation count, etc. if available
+      return (b.citationCount || 0) - (a.citationCount || 0);
+    });
+    
+    for (let i = 0; i < Math.min(remaining.length, targetTotal - balanced.length); i++) {
+      balanced.push(remaining[i]);
+    }
+  }
+  
+  return balanced;
 }
 
 // Add a simple in-memory cache for search results
