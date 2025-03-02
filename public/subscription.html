@@ -643,6 +643,20 @@
             })
             .then(response => {
                 if (!response.ok) {
+                    // 显示友好的错误信息
+                    const errorMessage = `服务暂时不可用 (${response.status})。请稍后再试。`;
+                    document.getElementById('articleContent').innerHTML = `
+                        <div class="alert alert-warning">
+                            <h4>无法生成内容</h4>
+                            <p>${errorMessage}</p>
+                            <p>您可以:</p>
+                            <ul>
+                                <li>检查您的网络连接</li>
+                                <li>稍后再试</li>
+                                <li>尝试选择不同的研究主题</li>
+                            </ul>
+                        </div>
+                    `;
                     throw new Error(`HTTP error! Status: ${response.status}`);
                 }
                 
