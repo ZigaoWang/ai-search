@@ -1,12 +1,12 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>知道 - 学术研究助手</title>
+  <title>AI Research Assistant Demo</title>
   <style>
     body {
-      font-family: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Helvetica Neue', Arial, sans-serif;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
       line-height: 1.6;
       color: #333;
       max-width: 1000px;
@@ -199,38 +199,38 @@
       border: 1px solid #b0d7ff;
       border-radius: 15px;
       font-weight: bold;
-      margin: 5px 5px 5px 0;
+      color: #0366d6;
+      margin: 5px 0;
     }
     
-    /* Paper display styles */
     .paper-item {
-      margin-bottom: 15px;
       border: 1px solid #ddd;
-      border-radius: 5px;
+      border-radius: 4px;
+      margin-bottom: 10px;
       overflow: hidden;
     }
     
+    .paper-item.cited {
+      border-left: 4px solid #28a745;
+    }
+    
+    .paper-item.unused {
+      opacity: 0.7;
+    }
+    
     .paper-header {
-      padding: 10px 15px;
-      background-color: #f5f5f5;
+      padding: 10px;
+      background: #f8f9fa;
       cursor: pointer;
-      position: relative;
-      transition: background-color 0.2s;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 1px solid #ddd;
     }
     
-    .paper-header:hover {
-      background-color: #eee;
-    }
-    
-    .paper-header::after {
-      content: '▼';
-      position: absolute;
-      right: 15px;
-      transition: transform 0.3s;
-    }
-    
-    .paper-header.expanded::after {
-      transform: rotate(180deg);
+    .paper-header h4 {
+      margin: 0;
+      font-size: 16px;
     }
     
     .paper-details {
@@ -242,152 +242,204 @@
       display: block;
     }
     
-    .paper-title {
-      font-weight: bold;
-      margin-right: 25px;
+    .toggle-icon:after {
+      content: "▼";
+      font-size: 12px;
     }
     
-    .paper-meta {
-      font-size: 0.9em;
-      color: #666;
-      margin-top: 5px;
+    .expanded .toggle-icon:after {
+      content: "▲";
     }
     
-    .paper-source {
-      display: inline-block;
-      padding: 2px 8px;
-      border-radius: 10px;
-      font-size: 0.85em;
-      margin-right: 8px;
-    }
-    
-    .source-semantic {
-      background-color: #e1f5fe;
-      color: #0277bd;
-    }
-    
-    .source-core {
-      background-color: #e8f5e9;
-      color: #2e7d32;
-    }
-    
-    .paper-abstract {
-      margin: 10px 0;
-      font-style: italic;
-      color: #555;
-    }
-    
-    .paper-link {
-      display: block;
-      margin-top: 10px;
-    }
-    
-    .paper-item.flash {
-      animation: highlight 1.5s;
-    }
-    
-    @keyframes highlight {
-      0% { background-color: #fff9c4; }
-      100% { background-color: transparent; }
-    }
-    
-    .process-steps {
-      padding: 10px;
-      background-color: #f9f9f9;
-      border-radius: 5px;
-      margin: 10px 0;
-    }
-    
-    .process-steps ul {
-      margin: 5px 0;
-      padding-left: 25px;
-    }
-    
-    /* Citation mappings display */
-    .citation-mappings {
-      margin-top: 15px;
-      padding: 10px;
-      background-color: #f9f9f9;
-      border-radius: 5px;
-    }
-    
-    .citation-mappings h4 {
-      margin-top: 0;
+    .meta-info {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 15px;
+      font-size: 14px;
       margin-bottom: 10px;
     }
     
-    .citation-mappings ul {
-      padding-left: 20px;
-      margin: 0;
-    }
-    
-    /* UI enhancements */
-    .toggle-view {
-      cursor: pointer;
-      color: #3498db;
-      text-decoration: underline;
-    }
-    
-    .toggle-container {
-      margin: 10px 0;
-    }
-    
-    .section-heading {
+    .meta-item {
       display: flex;
-      justify-content: space-between;
       align-items: center;
     }
     
-    .section-heading .toggle-btn {
-      font-size: 0.8em;
-      color: #3498db;
+    .meta-item i {
+      margin-right: 5px;
+      opacity: 0.6;
+    }
+    
+    .abstract {
+      font-style: italic;
+      color: #555;
+      margin-top: 10px;
+      padding-top: 10px;
+      border-top: 1px solid #eee;
+    }
+    
+    .markdown h1 {
+      font-size: 1.8em;
+      margin-top: 1em;
+      margin-bottom: 0.5em;
+    }
+    
+    .markdown h2 {
+      font-size: 1.5em;
+      margin-top: 1em;
+      margin-bottom: 0.5em;
+    }
+    
+    .markdown h3 {
+      font-size: 1.3em;
+      margin-top: 0.8em;
+      margin-bottom: 0.4em;
+    }
+    
+    .markdown p {
+      margin-bottom: 1em;
+    }
+    
+    .markdown ul, .markdown ol {
+      margin: 1em 0;
+      padding-left: 2em;
+    }
+    
+    .markdown blockquote {
+      border-left: 3px solid #ccc;
+      margin-left: 0;
+      padding-left: 1em;
+      color: #666;
+    }
+    
+    .markdown code {
+      background-color: #f5f5f5;
+      padding: 2px 4px;
+      border-radius: 3px;
+      font-family: monospace;
+    }
+    
+    .markdown pre {
+      background-color: #f5f5f5;
+      padding: 1em;
+      border-radius: 4px;
+      overflow-x: auto;
+    }
+    
+    .markdown table {
+      border-collapse: collapse;
+      width: 100%;
+      margin: 1em 0;
+    }
+    
+    .markdown th, .markdown td {
+      border: 1px solid #ddd;
+      padding: 8px;
+      text-align: left;
+    }
+    
+    .markdown th {
+      background-color: #f2f2f2;
+    }
+    
+    .paper-tag {
+      display: inline-block;
+      padding: 3px 6px;
+      border-radius: 12px;
+      font-size: 12px;
+      margin-left: 8px;
+    }
+    
+    .paper-tag.cited {
+      background-color: #d4edda;
+      color: #155724;
+    }
+    
+    .paper-tag.unused {
+      background-color: #e2e3e5;
+      color: #383d41;
+    }
+    
+    /* Updated styles for real-time rendering and citations */
+    .live-markdown-container {
+      padding: 20px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      background-color: #fff;
+      min-height: 250px;
+      max-height: 600px;
+      overflow-y: auto;
+    }
+    
+    .stream-container {
+      display: none; /* Hide the raw text container */
+    }
+    
+    /* Superscript citation style */
+    .citation {
+      vertical-align: super;
+      font-size: 0.75em;
+      line-height: 0;
+      position: relative;
+      background-color: #e9f7fe;
+      padding: 3px 5px;
+      border-radius: 8px;
+      margin: 0 2px;
       cursor: pointer;
+      font-weight: bold;
+      text-decoration: none;
+      color: #0366d6;
+      transition: all 0.2s ease;
     }
     
-    /* Progress spinner animation for search stages */
-    @keyframes pulse {
-      0% { box-shadow: 0 0 0 0 rgba(52, 152, 219, 0.4); }
-      70% { box-shadow: 0 0 0 10px rgba(52, 152, 219, 0); }
-      100% { box-shadow: 0 0 0 0 rgba(52, 152, 219, 0); }
+    .citation:hover {
+      background-color: #cceeff;
+      transform: scale(1.1);
     }
     
-    .pulse {
-      animation: pulse 2s infinite;
+    .citation.active {
+      background-color: #ffdd57;
     }
     
-    /* Loading dots animation for waiting */
-    .loading-dots::after {
-      content: '...';
-      animation: dots 1.5s steps(4, end) infinite;
+    /* Add a flash animation for highlighting citations and papers */
+    @keyframes flash-highlight {
+      0% { background-color: transparent; }
+      20% { background-color: #ffff99; }
+      100% { background-color: transparent; }
     }
     
-    @keyframes dots {
-      0%, 20% { content: '.'; }
-      40% { content: '..'; }
-      60% { content: '...'; }
-      90%, 100% { content: ''; }
+    .flash {
+      animation: flash-highlight 1.5s ease;
+    }
+
+    /* Add style for selected papers */
+    .paper-item.selected {
+      border-left: 4px solid #9c27b0;
     }
     
-    /* Semantic Scholar badge */
-    .badge-semantic {
+    .paper-tag.selected {
+      background-color: #e1bee7;
+      color: #4a148c;
+    }
+    
+    /* Source badge styles */
+    .source-badge {
       display: inline-block;
-      background-color: #1857B6;
-      color: white;
-      padding: 2px 5px;
-      border-radius: 3px;
-      font-size: 0.8em;
+      padding: 2px 6px;
+      border-radius: 10px;
+      font-size: 11px;
+      font-weight: bold;
+      margin-left: 5px;
       margin-right: 5px;
+      color: white;
+      vertical-align: middle;
     }
     
-    /* CORE badge */
-    .badge-core {
-      display: inline-block;
-      background-color: #5a9f58;
-      color: white;
-      padding: 2px 5px;
-      border-radius: 3px;
-      font-size: 0.8em;
-      margin-right: 5px;
+    .source-semantic {
+      background-color: #2c7be5;
+    }
+    
+    .source-core {
+      background-color: #e63757;
     }
   </style>
   
@@ -396,49 +448,48 @@
 </head>
 <body>
   <div class="nav-bar">
-    <div class="nav-title">知道 - 学术研究助手</div>
+    <div class="nav-title">AI Research Assistant</div>
     <div class="nav-links">
-      <a href="index.html" class="nav-link">首页</a>
       <a href="subscription.html" class="nav-link">研究订阅</a>
     </div>
   </div>
   
   <div class="container">
     <div class="input-group">
-      <input type="text" id="question-input" placeholder="输入研究问题..." />
-      <button id="ask-button">提问</button>
+      <input type="text" id="question-input" placeholder="Ask a research question..." />
+      <button id="ask-button">Ask Question</button>
     </div>
     
     <div class="progress" id="progress-container" style="display:none;">
       <div class="progress-stage" data-stage="evaluation" id="stage-evaluation">
         <div class="spinner"></div>
-        <span>正在评估问题范围...</span>
+        <span>Evaluating question scope...</span>
       </div>
       <div class="progress-stage" data-stage="paper_retrieval" id="stage-paper_retrieval">
         <div class="spinner"></div>
-        <span>正在搜索相关论文...</span>
+        <span>Searching for relevant papers...</span>
       </div>
       <div class="progress-stage" data-stage="paper_analysis" id="stage-paper_analysis">
         <div class="spinner"></div>
-        <span>正在分析论文内容...</span>
+        <span>Analyzing paper content...</span>
       </div>
       <div class="progress-stage" data-stage="answer_generation" id="stage-answer_generation">
         <div class="spinner"></div>
-        <span>正在生成回答...</span>
+        <span>Generating final answer...</span>
       </div>
     </div>
     
     <div id="papers-container" style="display:none;">
-      <h3>相关论文</h3>
+      <h3>Research Papers</h3>
       <ul class="papers-list" id="papers-list"></ul>
     </div>
     
     <div id="status-container" style="display:none;" class="status">
-      <p id="status-message">正在连接服务器...</p>
+      <p id="status-message">Connecting to server...</p>
     </div>
     
     <div id="answer-container" style="display:none;">
-      <h3>研究回答</h3>
+      <h3>Answer</h3>
       <div class="stream-container" id="answer-content"></div>
       <div class="live-markdown-container" id="live-markdown"></div>
     </div>
@@ -452,12 +503,12 @@
         const errorBox = document.createElement('div');
         errorBox.className = 'status error';
         errorBox.innerHTML = `
-          <h3>⚠️ 访问方式错误</h3>
-          <p>您正在直接从文件系统打开此文件，由于浏览器安全限制，这种方式无法正常工作。</p>
-          <p><strong>正确使用方法：</strong></p>
+          <h3>⚠️ Incorrect Access Method</h3>
+          <p>You're opening this file directly from your filesystem, which won't work due to browser security restrictions.</p>
+          <p><strong>To use this application:</strong></p>
           <ol>
-            <li>确保您的Node.js服务器正在运行: <code>node server.js</code></li>
-            <li>通过以下地址访问应用: <code>http://localhost:3000/</code></li>
+            <li>Make sure your Node.js server is running: <code>node server.js</code></li>
+            <li>Access the application through: <code>http://localhost:3000/</code></li>
           </ol>
         `;
         
@@ -603,7 +654,7 @@
         const encodedQuestion = encodeURIComponent(question);
         eventSource = new EventSource(`/stream-question?query=${encodedQuestion}`);
         
-        setStatus('连接到服务器，正在处理您的问题...');
+        setStatus('Connected to server, processing your question...');
         
         // Handle different event types from the server
         eventSource.onmessage = function(event) {
@@ -612,7 +663,7 @@
             
             switch (data.status) {
               case 'connected':
-                setStatus('连接建立，正在等待响应...');
+                setStatus('Connection established, awaiting response...');
                 break;
                 
               case 'stage_update':
@@ -634,7 +685,7 @@
                   displayPaper(paper, index);
                 });
                 
-                setStatus('正在找到和处理论文...');
+                setStatus('Finding and processing papers...');
                 break;
                 
               case 'substage_update':
@@ -646,8 +697,8 @@
                   decisionBanner = document.createElement('div');
                   decisionBanner.className = `decision-banner ${data.canAnswer ? 'direct-answer' : 'research-needed'}`;
                   decisionBanner.innerHTML = data.canAnswer ? 
-                    '<span>✓ 该问题可以直接从我的知识中回答</span>' :
-                    '<span>🔍 需要研究：正在搜索外部来源以获取信息</span>';
+                    '<span>✓ This question can be answered directly from my knowledge</span>' :
+                    '<span>🔍 Research needed: Searching external sources for information</span>';
                   
                   // Insert after progress container
                   progressContainer.after(decisionBanner);
@@ -664,11 +715,11 @@
                   
                   const keywordElem = document.createElement('div');
                   keywordElem.innerHTML = `
-                    <div>搜索关键词：<span class="search-keyword">${data.queryWord}</span></div>
+                    <div>Search keyword: <span class="search-keyword">${data.queryWord}</span></div>
                   `;
                   decisionBanner.appendChild(keywordElem);
                   
-                  setStatus(`正在使用搜索词："${data.queryWord}"`);
+                  setStatus(`Using search term: "${data.queryWord}"`);
                 }
                 else if (data.stage === 'papers_found') {
                   // Display found papers with collapsible details
@@ -679,12 +730,12 @@
                     displayPaper(paper, index);
                   });
                   
-                  setStatus(`找到 ${data.papers.length} 个相关论文。`);
+                  setStatus(`Found ${data.papers.length} relevant papers.`);
                 } else if (data.stage === 'filtering_papers') {
-                  setStatus(`正在评估论文的相关性...`, 'info');
+                  setStatus(`Evaluating papers for relevance to your question...`, 'info');
                 } else if (data.stage === 'papers_selected') {
                   // Update display to indicate which papers were selected
-                  setStatus(`选中了 ${data.selectedPapers.length} 个最相关的论文进行分析。`, 'success');
+                  setStatus(`Selected ${data.selectedPapers.length} most relevant papers for analysis.`, 'success');
                   
                   // Mark selected papers in the UI
                   data.selectedPapers.forEach(selected => {
@@ -696,7 +747,7 @@
                         item.classList.add('selected');
                         const tagElem = item.querySelector('.paper-tag');
                         if (tagElem) {
-                          tagElem.textContent = '选中';
+                          tagElem.textContent = 'Selected';
                           tagElem.classList.add('selected');
                         }
                       }
@@ -742,19 +793,19 @@
                 // A chunk of streaming is complete
                 if (data.stage === 'generating_answer') {
                   updateStage('answer_generation', false);
-                  setStatus('响应完成。', 'success');
+                  setStatus('Response complete.', 'success');
                 }
                 break;
                 
               case 'error':
-                setStatus(`错误：${data.error}`, 'error');
+                setStatus(`Error: ${data.error}`, 'error');
                 eventSource.close();
                 askButton.disabled = false;
                 break;
                 
               case 'complete':
                 // Process complete, clean up
-                setStatus('响应完成', 'success');
+                setStatus('Response complete', 'success');
                 eventSource.close();
                 askButton.disabled = false;
                 
@@ -774,14 +825,14 @@
                       paperElement.classList.add('cited');
                       paperElement.classList.remove('unused');
                       if (tagElement) {
-                        tagElement.textContent = '引用';
+                        tagElement.textContent = 'Cited';
                         tagElement.classList.remove('unused');
                         tagElement.classList.add('cited');
                       }
                     } else {
                       paperElement.classList.add('unused');
                       if (tagElement) {
-                        tagElement.textContent = '未引用';
+                        tagElement.textContent = 'Not cited';
                         tagElement.classList.remove('cited');
                         tagElement.classList.add('unused');
                       }
@@ -822,12 +873,12 @@
             }
           } catch (error) {
             console.error('Error parsing event data:', error);
-            setStatus('错误处理服务器响应', 'error');
+            setStatus('Error processing server response', 'error');
           }
         };
         
         eventSource.onerror = function() {
-          setStatus('连接错误。正在重新连接...', 'error');
+          setStatus('Connection error. Reconnecting...', 'error');
           // The browser will automatically try to reconnect
         };
       }
@@ -902,7 +953,7 @@
         const sourceBadge = `<span class="source-badge ${sourceBadgeClass}">${paper.source || 'Unknown'}</span>`;
         
         header.innerHTML = `
-          <h4>${paper.title} ${sourceBadge} <span class="paper-tag unused">未引用</span></h4>
+          <h4>${paper.title} ${sourceBadge} <span class="paper-tag unused">Not cited yet</span></h4>
           <span class="toggle-icon"></span>
         `;
         header.addEventListener('click', () => togglePaperDetails(header));
@@ -925,17 +976,17 @@
         details.innerHTML = `
           <div class="meta-info">
             <div class="meta-item">
-              <i>👥</i> 作者：${authorsList}
+              <i>👥</i> Authors: ${authorsList}
             </div>
             <div class="meta-item">
-              <i>📅</i> 年份：${paper.year || 'Unknown'}
+              <i>📅</i> Year: ${paper.year || 'Unknown'}
             </div>
             <div class="meta-item">
-              <i>🔗</i> <a href="${paper.link}" target="_blank">查看论文</a>
+              <i>🔗</i> <a href="${paper.link}" target="_blank">View Paper</a>
             </div>
           </div>
           <div class="abstract">
-            <strong>摘要：</strong> ${paper.abstract || '无摘要'}
+            <strong>Abstract:</strong> ${paper.abstract || 'No abstract available'}
           </div>
         `;
         
@@ -951,7 +1002,7 @@
         if (question) {
           startStreaming(question);
         } else {
-          setStatus('请输入问题', 'error');
+          setStatus('Please enter a question', 'error');
         }
       });
       
