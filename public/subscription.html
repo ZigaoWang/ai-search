@@ -9,23 +9,52 @@
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <style>
         body {
-            font-family: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Helvetica Neue', Arial, sans-serif;
+            font-family: 'PingFang SC', 'Helvetica Neue', Arial, sans-serif;
             line-height: 1.6;
             color: #333;
-            background-color: #f8f9fa;
-            padding-bottom: 50px;
+            background-color: #f5f5f5;
+            margin: 0;
+            padding: 0;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .main-content {
+            flex: 1;
+            padding-bottom: 12px; /* Match footer padding */
+        }
+        
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+            padding: 0 15px;
+        }
+        
+        .content-wrapper {
+            background-color: #fff;
+            border-radius: 8px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            padding: 25px;
+            margin-bottom: 20px;
         }
         
         .header {
-            text-align: center;
-            padding: 20px 0;
+            background-color: #f8f9fa;
+            border-bottom: 1px solid #e9ecef;
+            padding: 15px 0;
             margin-bottom: 20px;
-            background-color: #fff;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
         }
-
-        .container-fluid {
-            max-width: 1400px;
+        .header h1 {
+            font-size: 1.6rem;
+            font-weight: 600;
+            margin: 0;
+            color: #343a40;
+        }
+        .header p {
+            margin: 5px 0 0;
+            font-size: 0.95rem;
+            color: #6c757d;
         }
         
         .topic-container {
@@ -135,6 +164,11 @@
             padding: 0 3px;
             cursor: pointer;
             transition: background-color 0.2s;
+            display: inline-block;
+            font-size: 0.85em;
+            position: relative;
+            top: -0.4em;
+            margin: 0 2px;
         }
         
         .citation:hover {
@@ -208,90 +242,85 @@
         /* Footer styles */
         .footer {
             text-align: center;
-            padding: 20px 0;
-            margin-top: 40px;
+            padding: 12px 0;
+            margin-top: auto;
+            border-top: 1px solid #e9ecef;
+            font-size: 0.8rem;
             color: #6c757d;
-            font-size: 0.9rem;
-            border-top: 1px solid #eee;
             background-color: #f8f9fa;
         }
-        
-        .footer .powered-by {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 8px;
-        }
-        
-        .footer .logo {
-            font-weight: bold;
+        .footer a {
             color: #0d6efd;
+            text-decoration: none;
+        }
+        .footer a:hover {
+            text-decoration: underline;
         }
     </style>
 </head>
 <body>
     <div class="header">
-        <div class="container-fluid">
-            <h1>知道引擎 v1.5 - 研究前沿订阅</h1>
-            <p class="text-muted">基于您的兴趣，每天为您推送学术前沿知识</p>
-        </div>
-    </div>
-    
-    <div class="container-fluid">
-        <div class="topic-section" id="topicSection">
-            <h4 class="mb-3">选择您感兴趣的研究主题</h4>
-            <div class="topic-container" id="topicContainer">
-                <!-- 主题将通过JS动态生成 -->
-            </div>
-            
-            <div class="input-group mt-3" style="max-width: 500px;">
-                <input type="text" class="form-control" id="customTopicInput" placeholder="添加自定义主题...">
-                <button class="btn btn-outline-primary" id="addCustomTopic">添加</button>
-            </div>
-        </div>
-        
-        <div class="action-bar">
-            <div>
-                <button class="btn btn-primary" id="generateArticle">生成研究分析</button>
-                <button class="btn btn-outline-secondary ms-2" id="editTopics" style="display: none;">
-                    <i class="bi bi-pencil"></i> 编辑主题
-                </button>
-            </div>
-            <div id="topicSummary" class="text-muted">
-                <!-- 已选主题摘要显示 -->
-            </div>
-        </div>
-        
-        <!-- Papers container -->
-        <div id="papersContainer" class="papers-container" style="display:none;">
-            <h3>相关研究论文</h3>
-            <ul id="papersList" class="papers-list"></ul>
-        </div>
-        
-        <div class="content-area">
-            <div id="loadingIndicator" class="loading-indicator" style="display: none;">
-                <div class="loading-spinner"></div>
-                <span id="loadingText">正在生成研究分析...</span>
-            </div>
-            
-            <div id="articleContent" class="stream-content">
-                <!-- 文章内容将在这里流式显示 -->
-                <div class="text-center text-muted py-5">
-                    <p>选择您感兴趣的主题，然后点击"生成研究分析"按钮</p>
+        <div class="container">
+            <div class="d-flex justify-content-between align-items-center">
+                <div>
+                    <h1>知道引擎 - 研究前沿订阅</h1>
+                    <p>基于您的兴趣，每天推送学术前沿知识</p>
+                </div>
+                <div>
+                    <a href="/index.html" class="btn btn-outline-primary btn-sm">返回首页</a>
                 </div>
             </div>
         </div>
     </div>
     
-    <!-- Footer -->
-    <div class="footer">
-        <div class="container-fluid">
-            <div class="powered-by">
-                <span>Powered by</span>
-                <span class="logo">知道引擎 v1.5</span>
+    <div class="main-content">
+        <div class="container">
+            <div class="content-wrapper">
+                <div id="topicSection">
+                    <div class="d-flex justify-content-between align-items-center mb-3">
+                        <h3 class="mb-0">选择您感兴趣的研究主题</h3>
+                        <button id="editButton" class="btn btn-outline-primary btn-sm" onclick="toggleTopicSection(true)" style="display:none;">编辑主题</button>
+                    </div>
+                    <p>从下列主题中选择您感兴趣的领域，我们将为您生成相关的研究摘要。</p>
+                    
+                    <div id="topicContainer" class="topic-container">
+                        <!-- Topics will be added here dynamically -->
+                    </div>
+                    
+                    <div class="action-buttons">
+                        <button id="generateButton" class="btn btn-primary" onclick="generateArticle()">生成研究分析</button>
+                    </div>
+                </div>
+                
+                <div id="loadingIndicator" class="loading-indicator" style="display:none;">
+                    <div class="loading-spinner"></div>
+                    <span id="loadingText">正在生成研究分析...</span>
+                </div>
+            </div>
+            
+            <!-- Papers container -->
+            <div id="papersContainer" class="papers-container content-wrapper" style="display:none;">
+                <h3>相关研究论文</h3>
+                <ul id="papersList" class="papers-list"></ul>
+            </div>
+            
+            <div id="articleContainer" class="content-wrapper" style="display:none;">
+                <h3>研究前沿分析</h3>
+                <div id="articleContent" class="article-content"></div>
             </div>
         </div>
     </div>
+    
+    <!-- Footer -->
+    <footer class="footer">
+        <div class="container">
+            <p>
+                由 <a href="https://github.com/zigaowang/ai-search" target="_blank">知道引擎</a> 提供技术支持 | 
+                <a href="https://www.gnu.org/licenses/gpl-3.0.html" target="_blank">GNU GPL v3</a>
+                | Copyright &copy; 2025 Zigao Wang, Eason Zheng, Mark Ma, Rebecca Yu
+            </p>
+        </div>
+    </footer>
     
     <script>
         // 预定义的主题列表
@@ -308,38 +337,18 @@
         let isGenerating = false;
         
         // 初始化页面
-        document.addEventListener('DOMContentLoaded', () => {
-            // 从本地存储加载已订阅的主题
-            const savedTopics = localStorage.getItem('subscribedTopics');
-            if (savedTopics) {
-                try {
-                    const parsedTopics = JSON.parse(savedTopics);
-                    selectedTopics = new Set(parsedTopics);
-                } catch (e) {
-                    console.error('解析保存的主题时出错:', e);
-                    selectedTopics = new Set();
-                }
-            }
-            
-            // 生成主题标签
+        document.addEventListener('DOMContentLoaded', function() {
+            // 渲染主题标签
             renderTopics();
-            updateTopicSummary();
-            
-            // 自动隐藏主题选择区域（如果有选择的主题且不是首次访问）
-            const hasVisitedBefore = localStorage.getItem('hasVisitedBefore') === 'true';
-            if (selectedTopics.size > 0 && hasVisitedBefore) {
-                toggleTopicSection(false);
-            } else {
-                localStorage.setItem('hasVisitedBefore', 'true');
-            }
             
             // 设置按钮事件
-            document.getElementById('generateArticle').addEventListener('click', generateArticle);
-            document.getElementById('addCustomTopic').addEventListener('click', addCustomTopic);
-            document.getElementById('editTopics').addEventListener('click', () => toggleTopicSection(true));
+            document.getElementById('generateButton').addEventListener('click', generateArticle);
             
             // 检查是否有今日文章
             checkTodayArticle();
+            
+            // Try to display cached content
+            displayCachedContent();
         });
         
         // 渲染主题标签
@@ -370,48 +379,191 @@
             });
         }
         
-        // 添加自定义主题
-        function addCustomTopic() {
-            const input = document.getElementById('customTopicInput');
-            const customTopic = input.value.trim();
-            
-            if (customTopic) {
-                if (!topics.includes(customTopic)) {
-                    topics.push(customTopic);
-                }
-                
-                selectedTopics.add(customTopic);
-                saveTopic();
-                renderTopics();
-                updateTopicSummary();
-                input.value = '';
-            }
-        }
-        
         // 保存主题到本地存储
         function saveTopic() {
             localStorage.setItem('subscribedTopics', JSON.stringify([...selectedTopics]));
         }
         
-        // 更新主题摘要显示
+        // 更新已选主题摘要
         function updateTopicSummary() {
-            const summary = document.getElementById('topicSummary');
-            
-            if (selectedTopics.size === 0) {
-                summary.textContent = '未选择任何主题';
-            } else {
-                const topicList = [...selectedTopics].join('、');
-                summary.textContent = `已选: ${topicList}`;
-            }
+            // This function is no longer needed since we removed the topic summary element
+            // Keeping an empty function to avoid errors
         }
         
         // 切换主题选择区域的显示与隐藏
         function toggleTopicSection(show) {
             const topicSection = document.getElementById('topicSection');
-            const editButton = document.getElementById('editTopics');
+            const editButton = document.getElementById('editButton');
             
             topicSection.style.display = show ? 'block' : 'none';
             editButton.style.display = show ? 'none' : 'inline-block';
+        }
+        
+        // Function to save generated content to localStorage
+        function saveToCache(content, papers, topics) {
+            const cacheData = {
+                content: content,
+                papers: papers,
+                topics: topics,
+                timestamp: new Date().toISOString()
+            };
+            
+            try {
+                localStorage.setItem('cachedSubscription', JSON.stringify(cacheData));
+                console.log('Saved subscription content to cache');
+                
+                // Also save as today's article
+                saveTodayArticle(content, topics);
+            } catch (e) {
+                console.error('Error saving to cache:', e);
+            }
+        }
+        
+        // Function to save today's article
+        function saveTodayArticle(content, topics) {
+            const today = new Date();
+            const dateKey = `${today.getFullYear()}-${today.getMonth() + 1}-${today.getDate()}`;
+            
+            const articleData = {
+                content: content,
+                topics: topics,
+                timestamp: today.toISOString()
+            };
+            
+            try {
+                localStorage.setItem('article_' + dateKey, JSON.stringify(articleData));
+                console.log('Saved today\'s article');
+            } catch (e) {
+                console.error('Error saving today\'s article:', e);
+            }
+        }
+        
+        // Function to check if there's an article for today
+        function checkTodayArticle() {
+            const today = new Date();
+            const dateKey = `${today.getFullYear()}-${today.getMonth() + 1}-${today.getDate()}`;
+            const savedArticle = localStorage.getItem('article_' + dateKey);
+            
+            if (savedArticle) {
+                try {
+                    const article = JSON.parse(savedArticle);
+                    
+                    // Display the article
+                    const articleContent = document.getElementById('articleContent');
+                    if (articleContent) {
+                        articleContent.innerHTML = marked.parse(article.content);
+                        
+                        // Show article container
+                        const articleContainer = document.getElementById('articleContainer');
+                        if (articleContainer) {
+                            articleContainer.style.display = 'block';
+                        }
+                        
+                        // Make citations interactive
+                        makeInteractiveCitations();
+                        
+                        // Update selected topics
+                        if (article.topics && article.topics.length > 0) {
+                            const topicBadges = document.querySelectorAll('.topic-badge');
+                            topicBadges.forEach(badge => {
+                                if (article.topics.includes(badge.textContent)) {
+                                    badge.classList.add('selected');
+                                }
+                            });
+                        }
+                        
+                        console.log('Loaded today\'s article');
+                        return true;
+                    }
+                } catch (e) {
+                    console.error('Error parsing today\'s article:', e);
+                }
+            }
+            
+            return false;
+        }
+        
+        // Function to load cached content
+        function loadFromCache() {
+            const cachedData = localStorage.getItem('cachedSubscription');
+            if (!cachedData) return null;
+            
+            try {
+                return JSON.parse(cachedData);
+            } catch (e) {
+                console.error('Error parsing cached data:', e);
+                return null;
+            }
+        }
+        
+        // Function to display cached content
+        function displayCachedContent() {
+            // First try to load today's article
+            if (checkTodayArticle()) {
+                return true;
+            }
+            
+            // If no today's article, try the general cache
+            const cachedData = loadFromCache();
+            if (!cachedData) return false;
+            
+            // Check if cache is from today
+            const cachedDate = new Date(cachedData.timestamp);
+            const today = new Date();
+            const isSameDay = cachedDate.getDate() === today.getDate() && 
+                              cachedDate.getMonth() === today.getMonth() && 
+                              cachedDate.getFullYear() === today.getFullYear();
+            
+            if (!isSameDay) {
+                console.log('Cached content is not from today, not displaying');
+                return false;
+            }
+            
+            console.log('Displaying cached subscription content');
+            
+            // Display the cached content
+            const articleContent = document.getElementById('articleContent');
+            if (!articleContent) return false;
+            
+            articleContent.innerHTML = marked.parse(cachedData.content);
+            
+            // Show article container
+            const articleContainer = document.getElementById('articleContainer');
+            if (articleContainer) {
+                articleContainer.style.display = 'block';
+            }
+            
+            // Make citations interactive
+            makeInteractiveCitations();
+            
+            // Display papers
+            if (cachedData.papers && cachedData.papers.length > 0) {
+                const papersList = document.getElementById('papersList');
+                if (papersList) {
+                    papersList.innerHTML = '';
+                    
+                    const papersContainer = document.getElementById('papersContainer');
+                    if (papersContainer) {
+                        papersContainer.style.display = 'block';
+                    }
+                    
+                    cachedData.papers.forEach((paper, index) => {
+                        displayPaper(paper, index);
+                    });
+                }
+            }
+            
+            // Select the cached topics
+            if (cachedData.topics && cachedData.topics.length > 0) {
+                const topicBadges = document.querySelectorAll('.topic-badge');
+                topicBadges.forEach(badge => {
+                    if (cachedData.topics.includes(badge.textContent)) {
+                        badge.classList.add('selected');
+                    }
+                });
+            }
+            
+            return true;
         }
         
         // Function to generate the article
@@ -423,18 +575,40 @@
             }
             
             // Show loading indicator
-            document.getElementById('loadingIndicator').style.display = 'flex';
-            document.getElementById('loadingText').textContent = '正在生成研究分析...';
+            const loadingIndicator = document.getElementById('loadingIndicator');
+            if (loadingIndicator) {
+                loadingIndicator.style.display = 'flex';
+            }
+            
+            const loadingText = document.getElementById('loadingText');
+            if (loadingText) {
+                loadingText.textContent = '正在生成研究分析...';
+            }
             
             // Hide any previous results
-            document.getElementById('articleContent').innerHTML = '';
-            document.getElementById('papersContainer').style.display = 'none';
+            const articleContainer = document.getElementById('articleContainer');
+            if (articleContainer) {
+                articleContainer.style.display = 'none';
+            }
+            
+            const papersContainer = document.getElementById('papersContainer');
+            if (papersContainer) {
+                papersContainer.style.display = 'none';
+            }
             
             // Clear previous papers
-            document.getElementById('papersList').innerHTML = '';
+            const papersList = document.getElementById('papersList');
+            if (papersList) {
+                papersList.innerHTML = '';
+            }
             
             // Create container for streaming content
             const articleContent = document.getElementById('articleContent');
+            if (!articleContent) {
+                console.error('Article content element not found');
+                return;
+            }
+            
             articleContent.innerHTML = '';
             
             // Create a container for the streaming content
@@ -448,7 +622,13 @@
             articleContent.appendChild(contentContainer);
             articleContent.appendChild(cursor);
             
+            // Show article container for streaming
+            if (articleContainer) {
+                articleContainer.style.display = 'block';
+            }
+            
             let accumulatedMarkdown = '';
+            let foundPapers = [];
             
             // Make API request with streaming response
             fetch('/api/daily-digest', {
@@ -462,12 +642,26 @@
                 }),
             })
             .then(response => {
+                if (!response.ok) {
+                    throw new Error(`HTTP error! Status: ${response.status}`);
+                }
+                
                 const reader = response.body.getReader();
                 const decoder = new TextDecoder();
                 let buffer = '';
                 
                 function processText(result) {
                     if (result.done) {
+                        // Save to cache when complete
+                        if (accumulatedMarkdown) {
+                            saveToCache(accumulatedMarkdown, foundPapers, selectedTopics);
+                        }
+                        
+                        // Hide loading indicator when done
+                        if (loadingIndicator) {
+                            loadingIndicator.style.display = 'none';
+                        }
+                        
                         return;
                     }
                     
@@ -496,28 +690,38 @@
                                     // Auto-scroll to bottom
                                     window.scrollTo(0, document.body.scrollHeight);
                                 } else if (data.status === 'papers_found') {
+                                    // Store papers for caching
+                                    if (data.papers && data.papers.length > 0) {
+                                        foundPapers = data.papers;
+                                    }
+                                    
                                     // Display papers when found
-                                    document.getElementById('papersContainer').style.display = 'block';
+                                    if (papersContainer) {
+                                        papersContainer.style.display = 'block';
+                                    }
                                     
                                     // Display papers
-                                    if (data.papers && data.papers.length > 0) {
+                                    if (data.papers && data.papers.length > 0 && papersList) {
                                         data.papers.forEach((paper, index) => {
                                             displayPaper(paper, index);
                                         });
                                     }
                                 } else if (data.status === 'complete') {
                                     // Hide loading indicator
-                                    document.getElementById('loadingIndicator').style.display = 'none';
-                                    cursor.style.display = 'none';
+                                    if (loadingIndicator) {
+                                        loadingIndicator.style.display = 'none';
+                                    }
                                     
-                                    // Show article container
-                                    document.getElementById('articleContent').style.display = 'block';
+                                    cursor.style.display = 'none';
                                     
                                     // Make citations interactive one final time
                                     makeInteractiveCitations();
+                                    
+                                    // Save to cache
+                                    saveToCache(accumulatedMarkdown, foundPapers, selectedTopics);
                                 }
                             } catch (error) {
-                                console.error('Error parsing server data:', error);
+                                console.error('Error parsing server data:', error, eventData);
                             }
                         }
                     });
@@ -529,7 +733,9 @@
             })
             .catch(error => {
                 console.error('Error:', error);
-                document.getElementById('loadingIndicator').style.display = 'none';
+                if (loadingIndicator) {
+                    loadingIndicator.style.display = 'none';
+                }
                 alert('生成文章时出错，请重试');
             });
         }
@@ -559,7 +765,7 @@
             `;
             
             // Add to papers list
-            document.getElementById('papersList').appendChild(paperItem);
+            papersList.appendChild(paperItem);
             
             // Add click event to toggle details
             const header = paperItem.querySelector('.paper-header');
@@ -575,7 +781,27 @@
         function makeInteractiveCitations() {
             // Process citations in the format [1], [2], etc.
             const content = document.getElementById('live-markdown');
-            if (!content) return;
+            if (!content) {
+                // Try to find content in the article content area
+                const articleContent = document.getElementById('articleContent');
+                if (!articleContent) return;
+                
+                // Process all citation patterns in the article content
+                const html = articleContent.innerHTML;
+                
+                // Make citations interactive - match patterns like [1], [2], etc.
+                const processedHtml = html.replace(/\[(\d+)\]/g, (match, num) => {
+                    return `<span class="citation" data-key="${num}" onclick="highlightCitation('${num}')">${match}</span>`;
+                }).replace(/\[([A-Za-z]+\d{4})\]/g, (match, key) => {
+                    return `<span class="citation" data-key="${key}" onclick="highlightCitation('${key}')">${match}</span>`;
+                });
+                
+                if (processedHtml !== html) {
+                    articleContent.innerHTML = processedHtml;
+                }
+                
+                return;
+            }
             
             // Find all citation patterns and make them interactive
             const html = content.innerHTML;
@@ -631,7 +857,7 @@
             // If paper element found, scroll to it and expand details
             if (paperElement) {
                 // Ensure papers container is visible
-                document.getElementById('papersContainer').style.display = 'block';
+                papersContainer.style.display = 'block';
                 
                 // Scroll to the paper
                 paperElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -647,41 +873,6 @@
                 if (details && !details.style.display === 'block') {
                     details.style.display = 'block';
                 }
-            }
-        }
-        
-        // 检查今日文章
-        function checkTodayArticle() {
-            const storedArticle = localStorage.getItem('todayArticle');
-            if (!storedArticle) return;
-            
-            try {
-                const article = JSON.parse(storedArticle);
-                const timestamp = new Date(article.timestamp);
-                const today = new Date();
-                
-                // 检查是否是今天的文章
-                if (timestamp.getDate() === today.getDate() && 
-                    timestamp.getMonth() === today.getMonth() && 
-                    timestamp.getFullYear() === today.getFullYear()) {
-                    
-                    // 显示今日文章
-                    document.getElementById('articleContent').innerHTML = marked.parse(article.content);
-                    
-                    // 更新已选主题（如果有）
-                    if (article.topics && article.topics.length > 0) {
-                        const topics = new Set(article.topics);
-                        if (topics.size > 0) {
-                            selectedTopics = topics;
-                            saveTopic();
-                            renderTopics();
-                            updateTopicSummary();
-                            toggleTopicSection(false);
-                        }
-                    }
-                }
-            } catch (e) {
-                console.error('解析存储的文章时出错:', e);
             }
         }
     </script>
