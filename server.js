@@ -560,7 +560,7 @@ async function decideAnswer(question) {
   const prompt = `
 You are an expert AI assistant. Determine if you can answer the following question using your internal knowledge without needing external citations.
 
-IMPORTANT: Be very conservative in your assessment. If you have even the slightest doubt about providing a complete, accurate answer without citations, respond with canAnswer: false.
+IMPORTANT: Be liberal in your assessment. Only respond with canAnswer: true if the question is extremely simple and straightforward, and you are absolutely certain you can provide a complete and accurate answer without citations. Otherwise, respond with canAnswer: false.
 
 Return ONLY raw, parseable JSON in one of these two formats:
 1. {"canAnswer": true, "answer": "your answer here"}

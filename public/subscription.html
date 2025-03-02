@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>知道 - 研究订阅</title>
+    <title>知道引擎 v1.5 - 研究前沿订阅</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css">
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
@@ -90,26 +90,29 @@
         }
         
         .loading-indicator {
-            text-align: center;
-            padding: 30px;
-            font-size: 1.2rem;
-            color: #666;
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            margin: 20px 0;
+            padding: 15px;
+            background-color: #f8f9fa;
+            border-radius: 8px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
         }
-        
+        #loadingText {
+            font-size: 1.2rem;
+        }
         .loading-spinner {
             display: inline-block;
             width: 24px;
             height: 24px;
-            border: 3px solid rgba(0,0,0,0.1);
+            border: 3px solid rgba(0, 0, 0, 0.1);
             border-radius: 50%;
             border-top-color: #0d6efd;
             animation: spin 1s linear infinite;
-            margin-right: 10px;
+            flex-shrink: 0;
         }
-        
-        @keyframes spin {
-            to { transform: rotate(360deg); }
-        }
+        @keyframes spin { to { transform: rotate(360deg); } }
         
         .cursor {
             display: inline-block;
@@ -125,12 +128,111 @@
             from, to { opacity: 1; }
             50% { opacity: 0; }
         }
+        
+        .citation {
+            background-color: #e8f4fc;
+            border-radius: 3px;
+            padding: 0 3px;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+        
+        .citation:hover {
+            background-color: #c9e3f8;
+        }
+        
+        .citation.active {
+            background-color: #ffeeba;
+        }
+        
+        .papers-container {
+            margin-bottom: 20px;
+        }
+        .papers-list {
+            list-style-type: none;
+            padding: 0;
+            margin: 0;
+        }
+        .paper-item {
+            margin-bottom: 20px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+        .paper-header {
+            padding: 15px;
+            background-color: #f8f9fa;
+            cursor: pointer;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .paper-title {
+            font-weight: bold;
+            font-size: 1.1rem;
+            margin-bottom: 5px;
+            color: #0d6efd;
+        }
+        .paper-meta {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 15px;
+            margin-bottom: 10px;
+        }
+        .paper-meta span {
+            font-size: 0.9rem;
+            color: #666;
+        }
+        .paper-meta .authors {
+            font-style: italic;
+        }
+        .paper-details {
+            padding: 15px;
+            border-top: 1px solid #ddd;
+            background-color: #fff;
+        }
+        .paper-abstract {
+            margin-bottom: 15px;
+            line-height: 1.5;
+        }
+        .paper-link {
+            display: inline-block;
+            color: #0d6efd;
+            text-decoration: none;
+        }
+        .paper-link:hover {
+            text-decoration: underline;
+        }
+        
+        /* Footer styles */
+        .footer {
+            text-align: center;
+            padding: 20px 0;
+            margin-top: 40px;
+            color: #6c757d;
+            font-size: 0.9rem;
+            border-top: 1px solid #eee;
+            background-color: #f8f9fa;
+        }
+        
+        .footer .powered-by {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+        }
+        
+        .footer .logo {
+            font-weight: bold;
+            color: #0d6efd;
+        }
     </style>
 </head>
 <body>
     <div class="header">
         <div class="container-fluid">
-            <h1>知道 - 研究前沿订阅</h1>
+            <h1>知道引擎 v1.5 - 研究前沿订阅</h1>
             <p class="text-muted">基于您的兴趣，每天为您推送学术前沿知识</p>
         </div>
     </div>
@@ -160,6 +262,12 @@
             </div>
         </div>
         
+        <!-- Papers container -->
+        <div id="papersContainer" class="papers-container" style="display:none;">
+            <h3>相关研究论文</h3>
+            <ul id="papersList" class="papers-list"></ul>
+        </div>
+        
         <div class="content-area">
             <div id="loadingIndicator" class="loading-indicator" style="display: none;">
                 <div class="loading-spinner"></div>
@@ -171,6 +279,16 @@
                 <div class="text-center text-muted py-5">
                     <p>选择您感兴趣的主题，然后点击"生成研究分析"按钮</p>
                 </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Footer -->
+    <div class="footer">
+        <div class="container-fluid">
+            <div class="powered-by">
+                <span>Powered by</span>
+                <span class="logo">知道引擎 v1.5</span>
             </div>
         </div>
     </div>
@@ -296,65 +414,69 @@
             editButton.style.display = show ? 'none' : 'inline-block';
         }
         
-        // 生成研究文章
+        // Function to generate the article
         function generateArticle() {
-            if (selectedTopics.size === 0) {
+            const selectedTopics = Array.from(document.querySelectorAll('.topic-badge.selected')).map(badge => badge.textContent);
+            if (selectedTopics.length === 0) {
                 alert('请至少选择一个研究主题');
                 return;
             }
             
-            if (isGenerating) {
-                return; // 防止重复点击
-            }
+            // Show loading indicator
+            document.getElementById('loadingIndicator').style.display = 'flex';
+            document.getElementById('loadingText').textContent = '正在生成研究分析...';
             
-            isGenerating = true;
+            // Hide any previous results
+            document.getElementById('articleContent').innerHTML = '';
+            document.getElementById('papersContainer').style.display = 'none';
             
-            // 隐藏主题选择区域
-            toggleTopicSection(false);
+            // Clear previous papers
+            document.getElementById('papersList').innerHTML = '';
             
-            // 显示加载指示器
-            const loadingIndicator = document.getElementById('loadingIndicator');
+            // Create container for streaming content
             const articleContent = document.getElementById('articleContent');
-            loadingIndicator.style.display = 'block';
             articleContent.innerHTML = '';
             
-            // 创建用于流式显示的容器和光标
+            // Create a container for the streaming content
             const contentContainer = document.createElement('div');
+            contentContainer.id = 'live-markdown';
+            
+            // Add cursor for typing effect
             const cursor = document.createElement('span');
             cursor.className = 'cursor';
             
             articleContent.appendChild(contentContainer);
             articleContent.appendChild(cursor);
             
-            // 调用API生成研究分析
+            let accumulatedMarkdown = '';
+            
+            // Make API request with streaming response
             fetch('/api/daily-digest', {
                 method: 'POST',
                 headers: {
-                    'Content-Type': 'application/json'
+                    'Content-Type': 'application/json',
                 },
                 body: JSON.stringify({
-                    topics: [...selectedTopics].join(' OR '),
+                    topics: selectedTopics.join(' OR '),
                     userId: localStorage.getItem('userId') || 'anonymous-' + Math.random().toString(36).substring(2, 10)
-                })
+                }),
             })
             .then(response => {
                 const reader = response.body.getReader();
                 const decoder = new TextDecoder();
                 let buffer = '';
-                let accumulatedMarkdown = '';
                 
                 function processText(result) {
                     if (result.done) {
-                        isGenerating = false;
                         return;
                     }
                     
-                    // 将新接收的数据追加到缓冲区
+                    // Append new data to buffer
                     buffer += decoder.decode(result.value, {stream: true});
                     
-                    // 查找完整的数据块
+                    // Find complete data chunks
                     const lines = buffer.split('\n\n');
-                    buffer = lines.pop(); // 保留最后一个不完整的块
+                    buffer = lines.pop(); // Keep the last incomplete chunk
                     
                     lines.forEach(line => {
                         if (line.startsWith('data: ')) {
@@ -362,50 +484,40 @@
                             try {
                                 const data = JSON.parse(eventData);
                                 
-                                // 处理各种状态
-                                if (data.status === 'searching' || data.status === 'analysis') {
-                                    document.getElementById('loadingText').textContent = data.message;
-                                } else if (data.status === 'token') {
-                                    // 实时添加新的内容
+                                if (data.status === 'token') {
                                     accumulatedMarkdown += data.token;
                                     
-                                    // 渲染更新的markdown
+                                    // Render updated markdown
                                     contentContainer.innerHTML = marked.parse(accumulatedMarkdown);
                                     
-                                    // 自动滚动到底部
+                                    // Make citations interactive
+                                    makeInteractiveCitations();
+                                    
+                                    // Auto-scroll to bottom
                                     window.scrollTo(0, document.body.scrollHeight);
-                                } else if (data.status === 'complete') {
-                                    // 文章生成完成
-                                    loadingIndicator.style.display = 'none';
-                                    cursor.style.display = 'none';
+                                } else if (data.status === 'papers_found') {
+                                    // Display papers when found
+                                    document.getElementById('papersContainer').style.display = 'block';
                                     
-                                    // 如果文章内容为空，则使用已累积的markdown内容
-                                    if (!data.result || !data.result.digest || data.result.digest.trim() === '') {
-                                        // 当服务器没有返回结果时，继续使用已经流式生成的内容
-                                        console.log('服务器返回的digest为空，使用已累积的内容');
-                                    } else {
-                                        // 如果服务器返回了完整内容，则使用服务器返回的内容
-                                        accumulatedMarkdown = data.result.digest;
-                                        contentContainer.innerHTML = marked.parse(accumulatedMarkdown);
+                                    // Display papers
+                                    if (data.papers && data.papers.length > 0) {
+                                        data.papers.forEach((paper, index) => {
+                                            displayPaper(paper, index);
+                                        });
                                     }
-                                    
-                                    // 保存到本地存储作为今日文章
-                                    localStorage.setItem('todayArticle', JSON.stringify({
-                                        content: accumulatedMarkdown,
-                                        timestamp: new Date().toISOString(),
-                                        topics: [...selectedTopics]
-                                    }));
-                                    
-                                    isGenerating = false;
-                                } else if (data.status === 'error') {
-                                    // 显示错误
-                                    loadingIndicator.style.display = 'none';
-                                    contentContainer.innerHTML = `<div class="alert alert-danger">生成失败: ${data.message}</div>`;
+                                } else if (data.status === 'complete') {
+                                    // Hide loading indicator
+                                    document.getElementById('loadingIndicator').style.display = 'none';
                                     cursor.style.display = 'none';
-                                    isGenerating = false;
+                                    
+                                    // Show article container
+                                    document.getElementById('articleContent').style.display = 'block';
+                                    
+                                    // Make citations interactive one final time
+                                    makeInteractiveCitations();
                                 }
                             } catch (error) {
-                                console.error('解析服务器数据时出错:', error);
+                                console.error('Error parsing server data:', error);
                             }
                         }
                     });
@@ -416,11 +528,126 @@
                 return reader.read().then(processText);
             })
             .catch(error => {
-                console.error('请求失败:', error);
-                loadingIndicator.style.display = 'none';
-                articleContent.innerHTML = `<div class="alert alert-danger">发生错误: ${error.message}</div>`;
-                isGenerating = false;
+                console.error('Error:', error);
+                document.getElementById('loadingIndicator').style.display = 'none';
+                alert('生成文章时出错，请重试');
             });
+        }
+        
+        // Function to display a paper in the list
+        function displayPaper(paper, index) {
+            const paperItem = document.createElement('li');
+            paperItem.className = 'paper-item';
+            paperItem.id = `paper-${index}`;
+            
+            // Create paper content with basic info visible
+            paperItem.innerHTML = `
+                <div class="paper-header">
+                    <div>
+                        <div class="paper-title">${paper.title}</div>
+                        <div class="paper-meta">
+                            <span class="authors">${paper.authors}</span>
+                            <span class="year">${paper.year}</span>
+                            <span class="source">${paper.source || '未知来源'}</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="paper-details">
+                    <div class="paper-abstract">${paper.abstract || '无摘要'}</div>
+                    ${paper.url ? `<a href="${paper.url}" target="_blank" class="paper-link">查看原文</a>` : ''}
+                </div>
+            `;
+            
+            // Add to papers list
+            document.getElementById('papersList').appendChild(paperItem);
+            
+            // Add click event to toggle details
+            const header = paperItem.querySelector('.paper-header');
+            const details = paperItem.querySelector('.paper-details');
+            
+            header.addEventListener('click', () => {
+                details.style.display = details.style.display === 'none' ? 'block' : 'none';
+                header.classList.toggle('expanded');
+            });
+        }
+        
+        // Function to make citations interactive
+        function makeInteractiveCitations() {
+            // Process citations in the format [1], [2], etc.
+            const content = document.getElementById('live-markdown');
+            if (!content) return;
+            
+            // Find all citation patterns and make them interactive
+            const html = content.innerHTML;
+            
+            // Make citations interactive - match patterns like [1], [2], etc.
+            const processedHtml = html.replace(/\[(\d+)\]/g, (match, num) => {
+                return `<span class="citation" data-key="${num}" onclick="highlightCitation('${num}')">${match}</span>`;
+            }).replace(/\[([A-Za-z]+\d{4})\]/g, (match, key) => {
+                return `<span class="citation" data-key="${key}" onclick="highlightCitation('${key}')">${match}</span>`;
+            });
+            
+            if (processedHtml !== html) {
+                content.innerHTML = processedHtml;
+            }
+        }
+        
+        // Function to highlight citations and scroll to corresponding paper
+        function highlightCitation(citationKey) {
+            // Remove active class from all citations
+            document.querySelectorAll('.citation.active').forEach(el => {
+                el.classList.remove('active');
+            });
+            
+            // Add active class to clicked citation
+            document.querySelectorAll(`.citation[data-key="${citationKey}"]`).forEach(el => {
+                el.classList.add('active');
+            });
+            
+            // Find paper element by index (for numeric citations) or by title containing the key (for author-year)
+            let paperElement = null;
+            
+            // Try to find by index first (for [1], [2], etc.)
+            if (!isNaN(parseInt(citationKey))) {
+                const index = parseInt(citationKey) - 1; // Convert to 0-based index
+                paperElement = document.getElementById(`paper-${index}`);
+            }
+            
+            // If not found and papers list exists, try to find by searching titles
+            if (!paperElement) {
+                const papers = document.querySelectorAll('.paper-item');
+                papers.forEach(paper => {
+                    const titleElem = paper.querySelector('.paper-title');
+                    // For author-year citations, try to match part of the title or authors
+                    if (titleElem && (
+                        titleElem.textContent.includes(citationKey) || 
+                        paper.textContent.toLowerCase().includes(citationKey.toLowerCase())
+                    )) {
+                        paperElement = paper;
+                    }
+                });
+            }
+            
+            // If paper element found, scroll to it and expand details
+            if (paperElement) {
+                // Ensure papers container is visible
+                document.getElementById('papersContainer').style.display = 'block';
+                
+                // Scroll to the paper
+                paperElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                
+                // Add a flash effect
+                paperElement.style.backgroundColor = '#fffde7';
+                setTimeout(() => {
+                    paperElement.style.backgroundColor = '';
+                }, 1500);
+                
+                // Expand details if not already expanded
+                const details = paperElement.querySelector('.paper-details');
+                if (details && !details.style.display === 'block') {
+                    details.style.display = 'block';
+                }
+            }
         }
         
         // 检查今日文章
