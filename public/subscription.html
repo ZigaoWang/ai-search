@@ -9,7 +9,7 @@
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <style>
         body {
-            font-family: 'PingFang SC', 'Helvetica Neue', Arial, sans-serif;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
             line-height: 1.6;
             color: #333;
             background-color: #f5f5f5;
@@ -188,55 +188,55 @@
             margin: 0;
         }
         .paper-item {
-            margin-bottom: 20px;
-            border: 1px solid #ddd;
+            margin-bottom: 15px;
+            border: 1px solid #e9ecef;
             border-radius: 8px;
             overflow: hidden;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
         }
+        
         .paper-header {
-            padding: 15px;
+            padding: 12px 15px;
             background-color: #f8f9fa;
             cursor: pointer;
             display: flex;
             justify-content: space-between;
-            align-items: center;
+            align-items: flex-start;
         }
+        
         .paper-title {
-            font-weight: bold;
-            font-size: 1.1rem;
-            margin-bottom: 5px;
-            color: #0d6efd;
+            font-weight: 600;
+            margin: 0;
+            font-size: 1rem;
         }
+        
         .paper-meta {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 15px;
-            margin-bottom: 10px;
-        }
-        .paper-meta span {
+            margin-top: 5px;
             font-size: 0.9rem;
-            color: #666;
+            color: #6c757d;
         }
-        .paper-meta .authors {
-            font-style: italic;
-        }
-        .paper-details {
+        
+        .paper-content {
             padding: 15px;
-            border-top: 1px solid #ddd;
-            background-color: #fff;
+            border-top: 1px solid #e9ecef;
         }
+        
         .paper-abstract {
             margin-bottom: 15px;
-            line-height: 1.5;
         }
+        
         .paper-link {
             display: inline-block;
-            color: #0d6efd;
-            text-decoration: none;
+            margin-top: 10px;
         }
-        .paper-link:hover {
-            text-decoration: underline;
+        
+        .paper-citation {
+            display: inline-block;
+            background-color: #e8f4fc;
+            border-radius: 3px;
+            padding: 2px 6px;
+            margin-left: 8px;
+            font-size: 0.85em;
+            color: #0d6efd;
         }
         
         /* Footer styles */
@@ -742,25 +742,42 @@
         
         // Function to display a paper in the list
         function displayPaper(paper, index) {
+            if (!paper || !paper.title) return;
+            
+            const papersList = document.getElementById('papersList');
+            if (!papersList) return;
+            
+            const citationKey = paper.citation_key || (index + 1).toString();
+            
+            // Create paper item element
             const paperItem = document.createElement('li');
             paperItem.className = 'paper-item';
-            paperItem.id = `paper-${index}`;
+            paperItem.setAttribute('data-key', citationKey);
             
-            // Create paper content with basic info visible
+            // Format authors
+            let authors = paper.authors || '未知作者';
+            if (Array.isArray(authors)) {
+                authors = authors.join(', ');
+            }
+            
+            // Create paper content
             paperItem.innerHTML = `
                 <div class="paper-header">
                     <div>
-                        <div class="paper-title">${paper.title}</div>
+                        <h4 class="paper-title">${paper.title}</h4>
                         <div class="paper-meta">
-                            <span class="authors">${paper.authors}</span>
-                            <span class="year">${paper.year}</span>
-                            <span class="source">${paper.source || '未知来源'}</span>
+                            ${authors} (${paper.year || '未知年份'}) · ${paper.source || '未知来源'}
+                            <span class="paper-citation">[${citationKey}]</span>
                         </div>
                     </div>
+                    <span class="toggle-icon">▼</span>
                 </div>
-                <div class="paper-details">
-                    <div class="paper-abstract">${paper.abstract || '无摘要'}</div>
-                    ${paper.url ? `<a href="${paper.url}" target="_blank" class="paper-link">查看原文</a>` : ''}
+                <div class="paper-content" style="display: none;">
+                    <div class="paper-abstract">
+                        <strong>摘要：</strong>
+                        <p>${paper.abstract || '无摘要可用'}</p>
+                    </div>
+                    ${paper.url ? `<a href="${paper.url}" target="_blank" class="paper-link btn btn-sm btn-outline-primary">查看原文</a>` : ''}
                 </div>
             `;
             
@@ -769,11 +786,13 @@
             
             // Add click event to toggle details
             const header = paperItem.querySelector('.paper-header');
-            const details = paperItem.querySelector('.paper-details');
+            const content = paperItem.querySelector('.paper-content');
+            const toggleIcon = paperItem.querySelector('.toggle-icon');
             
             header.addEventListener('click', () => {
-                details.style.display = details.style.display === 'none' ? 'block' : 'none';
-                header.classList.toggle('expanded');
+                const isHidden = content.style.display === 'none';
+                content.style.display = isHidden ? 'block' : 'none';
+                toggleIcon.textContent = isHidden ? '▲' : '▼';
             });
         }
         
