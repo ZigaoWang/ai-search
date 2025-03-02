@@ -1,5 +1,19 @@
 {
+  "name": "zhidao",
+  "version": "1.0.0",
+  "description": "智能研究助手",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "engines": {
+    "node": ">=14.x"
+  },
   "dependencies": {
+    "axios": "^1.8.1",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
     "nanoid": "^5.1.2"
   }
 }
