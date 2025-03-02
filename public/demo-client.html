@@ -12,7 +12,36 @@
       max-width: 1000px;
       margin: 0 auto;
       padding: 20px;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
     }
+    
+    .main-content {
+      flex: 1;
+      padding-bottom: 12px; /* Match footer padding */
+    }
+    
+    /* Footer styles */
+    .footer {
+      background-color: #fff;
+      border-top: 1px solid #e9ecef;
+      padding: 12px 0;
+      margin-top: auto;
+      text-align: center;
+      font-size: 0.9rem;
+      color: #6c757d;
+    }
+    
+    .footer a {
+      color: #3498db;
+      text-decoration: none;
+    }
+    
+    .footer a:hover {
+      text-decoration: underline;
+    }
+    
     h1 {
       color: #2c3e50;
     }
@@ -447,54 +476,67 @@
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 </head>
 <body>
-  <div class="nav-bar">
-    <div class="nav-title">知道引擎 v1.5</div>
-    <div class="nav-links">
-      <a href="subscription.html" class="nav-link">研究订阅</a>
+  <div class="main-content">
+    <div class="nav-bar">
+      <div class="nav-title">知道引擎 v1.5</div>
+      <div class="nav-links">
+        <a href="subscription.html" class="nav-link">研究订阅</a>
+      </div>
+    </div>
+    
+    <div class="container">
+      <div class="input-group">
+        <input type="text" id="question-input" placeholder="Ask a research question..." />
+        <button id="ask-button">Ask Question</button>
+      </div>
+      
+      <div class="progress" id="progress-container" style="display:none;">
+        <div class="progress-stage" data-stage="evaluation" id="stage-evaluation">
+          <div class="spinner"></div>
+          <span>Evaluating question scope...</span>
+        </div>
+        <div class="progress-stage" data-stage="paper_retrieval" id="stage-paper_retrieval">
+          <div class="spinner"></div>
+          <span>Searching for relevant papers...</span>
+        </div>
+        <div class="progress-stage" data-stage="paper_analysis" id="stage-paper_analysis">
+          <div class="spinner"></div>
+          <span>Analyzing paper content...</span>
+        </div>
+        <div class="progress-stage" data-stage="answer_generation" id="stage-answer_generation">
+          <div class="spinner"></div>
+          <span>Generating final answer...</span>
+        </div>
+      </div>
+      
+      <div id="papers-container" style="display:none;">
+        <h3>Research Papers</h3>
+        <ul class="papers-list" id="papers-list"></ul>
+      </div>
+      
+      <div id="status-container" style="display:none;" class="status">
+        <p id="status-message">Connecting to server...</p>
+      </div>
+      
+      <div id="answer-container" style="display:none;">
+        <h3>Answer</h3>
+        <div class="stream-container" id="answer-content"></div>
+        <div class="live-markdown-container" id="live-markdown"></div>
+      </div>
     </div>
   </div>
   
-  <div class="container">
-    <div class="input-group">
-      <input type="text" id="question-input" placeholder="Ask a research question..." />
-      <button id="ask-button">Ask Question</button>
+  <!-- Footer -->
+  <footer class="footer">
+    <div class="container">
+      <p>
+        由 <a href="https://github.com/zigaowang/ai-search" target="_blank">知道引擎</a> 提供技术支持 | 
+        <a href="https://www.gnu.org/licenses/gpl-3.0.html" target="_blank">GNU GPL v3</a>
+        | Copyright &copy; 2025 Zigao Wang, Eason Zheng, Mark Ma, Rebecca Yu
+      </p>
     </div>
-    
-    <div class="progress" id="progress-container" style="display:none;">
-      <div class="progress-stage" data-stage="evaluation" id="stage-evaluation">
-        <div class="spinner"></div>
-        <span>Evaluating question scope...</span>
-      </div>
-      <div class="progress-stage" data-stage="paper_retrieval" id="stage-paper_retrieval">
-        <div class="spinner"></div>
-        <span>Searching for relevant papers...</span>
-      </div>
-      <div class="progress-stage" data-stage="paper_analysis" id="stage-paper_analysis">
-        <div class="spinner"></div>
-        <span>Analyzing paper content...</span>
-      </div>
-      <div class="progress-stage" data-stage="answer_generation" id="stage-answer_generation">
-        <div class="spinner"></div>
-        <span>Generating final answer...</span>
-      </div>
-    </div>
-    
-    <div id="papers-container" style="display:none;">
-      <h3>Research Papers</h3>
-      <ul class="papers-list" id="papers-list"></ul>
-    </div>
-    
-    <div id="status-container" style="display:none;" class="status">
-      <p id="status-message">Connecting to server...</p>
-    </div>
-    
-    <div id="answer-container" style="display:none;">
-      <h3>Answer</h3>
-      <div class="stream-container" id="answer-content"></div>
-      <div class="live-markdown-container" id="live-markdown"></div>
-    </div>
-  </div>
-
+  </footer>
+  
   <script>
     document.addEventListener('DOMContentLoaded', function() {
       // Check if running from file protocol
