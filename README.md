@@ -1,6 +1,7 @@
 # 知道 (ZhiDao) - AI Research Assistant 🔍
 
 <div align="center">
+  <img src="https://github.com/user-attachments/assets/768f58e6-0e5a-4ecc-a837-721dc2ba4461" alt="ZhiDao Banner" width="800"/>
   
   [![MoonShot 48 Runner-Up](https://img.shields.io/badge/MoonShot%2048-2nd%20Place-silver?style=for-the-badge)](https://github.com/ZigaoWang/ai-search)
   [![Bilingual](https://img.shields.io/badge/Bilingual-English%20%7C%20中文-blue?style=for-the-badge)](https://github.com/ZigaoWang/ai-search)
@@ -14,12 +15,11 @@
 <div align="center">
   <table>
     <tr>
-      <td><img src="https://github.com/user-attachments/assets/e7b2880b-b80d-42ea-9ebf-ca81380c636b" alt="ZhiDao Screenshot 1" width="400"/></td>
-      <td><img src="https://github.com/user-attachments/assets/92417291-442f-4e97-bf75-591d1eebc573" alt="ZhiDao Screenshot 2" width="400"/></td>
+      <td><img src="https://github.com/user-attachments/assets/e7b2880b-b80d-42ea-9ebf-ca81380c636b" alt="MoonShot 48 Award" width="400"/></td>
+      <td><img src="https://github.com/user-attachments/assets/92417291-442f-4e97-bf75-591d1eebc573" alt="iOS Screenshot" width="400"/></td>
     </tr>
     <tr>
-      <td><img src="https://github.com/user-attachments/assets/768f58e6-0e5a-4ecc-a837-721dc2ba4461" alt="ZhiDao Screenshot 3" width="400"/></td>
-      <td><img src="https://github.com/user-attachments/assets/7fa3a92d-b010-4870-9208-6294411140e3" alt="ZhiDao Screenshot 4" width="400"/></td>
+      <td colspan="2"><img src="https://github.com/user-attachments/assets/7fa3a92d-b010-4870-9208-6294411140e3" alt="Web Interface" width="800"/></td>
     </tr>
   </table>
 </div>
@@ -114,6 +114,7 @@ Health check endpoint to verify the server status.
 |----------|-------------|---------|
 | `PORT` | The port on which the server will listen | 3000 |
 | `OPENAI_API_KEY` | The API key for accessing the UniAPI (OpenAI) endpoint | - |
+| `CORE_API_KEY` | The API key for accessing Core research paper database | - |
 | `LOG_LEVEL` | The logging level | `INFO` |
 
 ## 📝 Logging

@@ -1,6 +1,7 @@
 # 知道 - 人工智能研究助手 🔍
 
 <div align="center">
+  <img src="https://github.com/user-attachments/assets/768f58e6-0e5a-4ecc-a837-721dc2ba4461" alt="知道 Banner" width="800"/>
   
   [![登月48黑客马拉松亚军](https://img.shields.io/badge/登月48-亚军-silver?style=for-the-badge)](https://github.com/ZigaoWang/ai-search)
   [![双语支持](https://img.shields.io/badge/双语支持-中文%20%7C%20English-blue?style=for-the-badge)](https://github.com/ZigaoWang/ai-search)
@@ -14,12 +15,11 @@
 <div align="center">
   <table>
     <tr>
-      <td><img src="https://github.com/user-attachments/assets/e7b2880b-b80d-42ea-9ebf-ca81380c636b" alt="知道截图1" width="400"/></td>
-      <td><img src="https://github.com/user-attachments/assets/92417291-442f-4e97-bf75-591d1eebc573" alt="知道截图2" width="400"/></td>
+      <td><img src="https://github.com/user-attachments/assets/e7b2880b-b80d-42ea-9ebf-ca81380c636b" alt="登月48获奖" width="400"/></td>
+      <td><img src="https://github.com/user-attachments/assets/92417291-442f-4e97-bf75-591d1eebc573" alt="iOS截图" width="400"/></td>
     </tr>
     <tr>
-      <td><img src="https://github.com/user-attachments/assets/768f58e6-0e5a-4ecc-a837-721dc2ba4461" alt="知道截图3" width="400"/></td>
-      <td><img src="https://github.com/user-attachments/assets/7fa3a92d-b010-4870-9208-6294411140e3" alt="知道截图4" width="400"/></td>
+      <td colspan="2"><img src="https://github.com/user-attachments/assets/7fa3a92d-b010-4870-9208-6294411140e3" alt="网页界面" width="800"/></td>
     </tr>
   </table>
 </div>
@@ -114,6 +114,7 @@
 |----------|-------------|---------|
 | `PORT` | 服务器将侦听的端口 | 3000 |
 | `OPENAI_API_KEY` | 用于访问UniAPI（OpenAI）端点的API密钥 | - |
+| `CORE_API_KEY` | 用于访问Core研究论文数据库的API密钥 | - |
 | `LOG_LEVEL` | 日志级别 | `INFO` |
 
 ## 📝 日志
@@ -129,7 +130,7 @@
 ## 🧰 使用方法
 
 1. 确保您有一个包含必要环境变量的`.env`文件
-2. 安装依赖:
+2. 安装依赖：
    ```bash
    npm install
    ```
