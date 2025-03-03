@@ -6,6 +6,7 @@
   [![登月48黑客马拉松亚军](https://img.shields.io/badge/登月48-亚军-silver?style=for-the-badge)](https://github.com/ZigaoWang/ai-search)
   [![双语支持](https://img.shields.io/badge/双语支持-中文%20%7C%20English-blue?style=for-the-badge)](https://github.com/ZigaoWang/ai-search)
   [![项目状态](https://img.shields.io/badge/状态-活跃-brightgreen?style=for-the-badge)](https://github.com/ZigaoWang/ai-search)
+  [![许可证](https://img.shields.io/badge/许可证-GNU%20GPL%20v3-orange?style=for-the-badge)](https://www.gnu.org/licenses/gpl-3.0.en.html)
 
   *[英文文档 (English Documentation)](README.md)*
 </div>
@@ -17,9 +18,6 @@
     <tr>
       <td><img src="https://github.com/user-attachments/assets/e7b2880b-b80d-42ea-9ebf-ca81380c636b" alt="登月48获奖" width="400"/></td>
       <td><img src="https://github.com/user-attachments/assets/92417291-442f-4e97-bf75-591d1eebc573" alt="iOS截图" width="400"/></td>
-    </tr>
-    <tr>
-      <td colspan="2"><img src="https://github.com/user-attachments/assets/7fa3a92d-b010-4870-9208-6294411140e3" alt="网页界面" width="800"/></td>
     </tr>
   </table>
 </div>
@@ -142,4 +140,4 @@
 
 ## 📄 许可证
 
-[MIT](LICENSE)
+本项目采用 [GNU通用公共许可证 v3.0](https://www.gnu.org/licenses/gpl-3.0.zh-cn.html) 授权 - 详情请参阅LICENSE文件。

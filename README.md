@@ -6,6 +6,7 @@
   [![MoonShot 48 Runner-Up](https://img.shields.io/badge/MoonShot%2048-2nd%20Place-silver?style=for-the-badge)](https://github.com/ZigaoWang/ai-search)
   [![Bilingual](https://img.shields.io/badge/Bilingual-English%20%7C%20中文-blue?style=for-the-badge)](https://github.com/ZigaoWang/ai-search)
   [![Status](https://img.shields.io/badge/Status-Active-brightgreen?style=for-the-badge)](https://github.com/ZigaoWang/ai-search)
+  [![License](https://img.shields.io/badge/License-GNU%20GPL%20v3-orange?style=for-the-badge)](https://www.gnu.org/licenses/gpl-3.0.en.html)
 
   *[中文文档 (Chinese Documentation)](README.zh.md)*
 </div>
@@ -17,9 +18,6 @@
     <tr>
       <td><img src="https://github.com/user-attachments/assets/e7b2880b-b80d-42ea-9ebf-ca81380c636b" alt="MoonShot 48 Award" width="400"/></td>
       <td><img src="https://github.com/user-attachments/assets/92417291-442f-4e97-bf75-591d1eebc573" alt="iOS Screenshot" width="400"/></td>
-    </tr>
-    <tr>
-      <td colspan="2"><img src="https://github.com/user-attachments/assets/7fa3a92d-b010-4870-9208-6294411140e3" alt="Web Interface" width="800"/></td>
     </tr>
   </table>
 </div>
@@ -142,4 +140,4 @@ The current log level is determined by the `LOG_LEVEL` environment variable.
 
 ## 📄 License
 
-[MIT](LICENSE)
+This project is licensed under the [GNU General Public License v3.0](https://www.gnu.org/licenses/gpl-3.0.en.html) - see the LICENSE file for details.
