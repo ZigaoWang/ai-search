@@ -1,10 +1,28 @@
-# ZhiDao - AI Research Assistant
+# 知道 (ZhiDao) - AI Research Assistant 🔍
 
-<p align="center">
-  <img src="/public/image.png" alt="ZhiDao AI Research Assistant" width="600">
-</p>
+<div align="center">
+  
+  [![MoonShot 48 Runner-Up](https://img.shields.io/badge/MoonShot%2048-2nd%20Place-silver?style=for-the-badge)](https://github.com/ZigaoWang/ai-search)
+  [![Bilingual](https://img.shields.io/badge/Bilingual-English%20%7C%20中文-blue?style=for-the-badge)](https://github.com/ZigaoWang/ai-search)
+  [![Status](https://img.shields.io/badge/Status-Active-brightgreen?style=for-the-badge)](https://github.com/ZigaoWang/ai-search)
 
-*[中文文档 (Chinese Documentation)](README.zh.md)*
+  *[中文文档 (Chinese Documentation)](README.zh.md)*
+</div>
+
+## 📱 Application Screenshots
+
+<div align="center">
+  <table>
+    <tr>
+      <td><img src="https://github.com/user-attachments/assets/e7b2880b-b80d-42ea-9ebf-ca81380c636b" alt="ZhiDao Screenshot 1" width="400"/></td>
+      <td><img src="https://github.com/user-attachments/assets/92417291-442f-4e97-bf75-591d1eebc573" alt="ZhiDao Screenshot 2" width="400"/></td>
+    </tr>
+    <tr>
+      <td><img src="https://github.com/user-attachments/assets/768f58e6-0e5a-4ecc-a837-721dc2ba4461" alt="ZhiDao Screenshot 3" width="400"/></td>
+      <td><img src="https://github.com/user-attachments/assets/7fa3a92d-b010-4870-9208-6294411140e3" alt="ZhiDao Screenshot 4" width="400"/></td>
+    </tr>
+  </table>
+</div>
 
 ## 🏆 MoonShot 48 Runner-Up
 
@@ -12,18 +30,19 @@ This project was developed during MoonShot 48 hackathon and received **2nd place
 
 ## 🌟 Features
 
-- **Research Q&A:** Ask research questions in natural language and get comprehensive answers with citations
-- **Personalized Subscriptions:** Subscribe to daily research feeds customized to your interests and topics
-- **Bilingual Interface:** Full support for both English and Chinese languages
-- **Citation Management:** Automatically tracks and displays sources for all information
+- **🔎 Research Q&A:** Ask research questions in natural language and get comprehensive answers with citations
+- **📰 Personalized Subscriptions:** Subscribe to daily research feeds customized to your interests and topics
+- **🌏 Bilingual Interface:** Full support for both English and Chinese languages
+- **📚 Citation Management:** Automatically tracks and displays sources for all information
 
-## API Documentation
+## 🚀 API Documentation
 
 This API provides endpoints for processing research questions using Semantic Scholar and UniAPI (OpenAI) to generate comprehensive answers with citations.
 
 ### Endpoints
 
-#### GET /question
+<details>
+<summary><strong>GET /question</strong> - Process a research question</summary>
 
 Process a question through the research pipeline.
 
@@ -35,8 +54,10 @@ Process a question through the research pipeline.
 - `200 OK`: Returns the result object with the answer and metadata
 - `400 Bad Request`: Missing query parameter
 - `500 Internal Server Error`: Error processing the request
+</details>
 
-#### GET /api/daily-digest
+<details>
+<summary><strong>GET /api/daily-digest</strong> - Get personalized research updates</summary>
 
 Get personalized daily research digests based on subscribed topics.
 
@@ -48,8 +69,10 @@ Get personalized daily research digests based on subscribed topics.
 - `200 OK`: Returns the personalized research digest
 - `400 Bad Request`: Missing topics parameter
 - `500 Internal Server Error`: Error generating the digest
+</details>
 
-#### POST /question
+<details>
+<summary><strong>POST /question</strong> - Process a question (POST method)</summary>
 
 Process a question through the research pipeline using a POST request.
 
@@ -60,8 +83,10 @@ Process a question through the research pipeline using a POST request.
 - `200 OK`: Returns the result object with the answer and metadata
 - `400 Bad Request`: Missing query in request body
 - `500 Internal Server Error`: Error processing the request
+</details>
 
-#### GET /stream-question
+<details>
+<summary><strong>GET /stream-question</strong> - Process a question with streaming</summary>
 
 Process a question with streaming updates.
 
@@ -72,21 +97,26 @@ Process a question with streaming updates.
 - `200 OK`: Returns streaming updates and the final result object with the answer and metadata
 - `400 Bad Request`: Missing query parameter
 - `500 Internal Server Error`: Error processing the request
+</details>
 
-#### GET /health
+<details>
+<summary><strong>GET /health</strong> - Health check endpoint</summary>
 
 Health check endpoint to verify the server status.
 
 **Response:**
 - `200 OK`: Returns the server status, version, environment, and timestamp
+</details>
 
-## Environment Variables
+## ⚙️ Environment Variables
 
-- `PORT`: The port on which the server will listen (default: 3000)
-- `OPENAI_API_KEY`: The API key for accessing the UniAPI (OpenAI) endpoint
-- `LOG_LEVEL`: The logging level (e.g., `ERROR`, `WARN`, `INFO`, `DEBUG`)
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `PORT` | The port on which the server will listen | 3000 |
+| `OPENAI_API_KEY` | The API key for accessing the UniAPI (OpenAI) endpoint | - |
+| `LOG_LEVEL` | The logging level | `INFO` |
 
-## Logging
+## 📝 Logging
 
 The server uses a custom logging function with the following log levels:
 - `ERROR`
@@ -96,11 +126,19 @@ The server uses a custom logging function with the following log levels:
 
 The current log level is determined by the `LOG_LEVEL` environment variable.
 
-## Usage
+## 🧰 Usage
 
 1. Ensure you have a `.env` file with the necessary environment variables
-2. Start the server:
+2. Install dependencies:
+   ```bash
+   npm install
+   ```
+3. Start the server:
    ```bash
    node server.js
    ```
-3. Access the endpoints as described above
+4. Access the endpoints as described above
+
+## 📄 License
+
+[MIT](LICENSE)
