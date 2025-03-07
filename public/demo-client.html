@@ -391,12 +391,36 @@
     /* Updated styles for real-time rendering and citations */
     .live-markdown-container {
       padding: 20px;
-      border: 1px solid #ddd;
-      border-radius: 4px;
-      background-color: #fff;
+      border-radius: 8px;
+      background-color: white;
       min-height: 250px;
       max-height: 600px;
       overflow-y: auto;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+      margin-bottom: 20px;
+      font-size: 16px;
+      line-height: 1.6;
+    }
+    
+    .live-markdown-container h1,
+    .live-markdown-container h2,
+    .live-markdown-container h3 {
+      margin-top: 1.5em;
+      margin-bottom: 0.75em;
+      font-weight: 600;
+    }
+    
+    .live-markdown-container p {
+      margin-bottom: 1em;
+    }
+    
+    .live-markdown-container ul {
+      margin-bottom: 1.5em;
+      padding-left: 1.5em;
+    }
+    
+    .live-markdown-container li {
+      margin-bottom: 0.5em;
     }
     
     .stream-container {
@@ -405,28 +429,31 @@
     
     /* Superscript citation style */
     .citation {
-      vertical-align: super;
-      font-size: 0.75em;
-      line-height: 0;
-      position: relative;
-      background-color: #e9f7fe;
-      padding: 3px 5px;
-      border-radius: 8px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.8em;
+      background-color: #2196F3;
+      color: white;
+      border-radius: 4px;
+      padding: 2px 6px;
       margin: 0 2px;
       cursor: pointer;
       font-weight: bold;
       text-decoration: none;
-      color: #0366d6;
       transition: all 0.2s ease;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+      vertical-align: baseline;
     }
     
     .citation:hover {
-      background-color: #cceeff;
-      transform: scale(1.1);
+      transform: scale(1.2);
+      background-color: #0d47a1;
     }
     
     .citation.active {
-      background-color: #ffdd57;
+      background-color: #ff9800;
+      transform: scale(1.2);
     }
     
     /* Add a flash animation for highlighting citations and papers */
@@ -481,6 +508,71 @@
 
     .source-pubmed {
       background-color: #336699;
+    }
+    
+    /* 添加引用提示框 */
+    .citation-tooltip {
+      position: fixed;
+      background: white;
+      border-radius: 6px;
+      box-shadow: 0 3px 10px rgba(0,0,0,0.2);
+      padding: 10px;
+      z-index: 1000;
+      max-width: 300px;
+      display: none;
+      font-size: 14px;
+      border-left: 4px solid #2196F3;
+    }
+    
+    /* 添加聊天气泡样式 */
+    .chat-message {
+      display: flex;
+      margin-bottom: 20px;
+    }
+
+    .user-message {
+      justify-content: flex-end;
+    }
+
+    .assistant-message {
+      justify-content: flex-start;
+    }
+
+    .message-content {
+      max-width: 85%;
+      padding: 12px 16px;
+      border-radius: 18px;
+      box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+    }
+
+    .user-message .message-content {
+      background-color: #dcf8c6;
+      border-top-right-radius: 4px;
+    }
+
+    .assistant-message .message-content {
+      background-color: white;
+      border-top-left-radius: 4px;
+    }
+    
+    /* Works Cited 部分样式 */
+    .works-cited {
+      margin-top: 20px;
+      padding-top: 15px;
+      border-top: 1px solid #ddd;
+      font-size: 0.9em;
+    }
+
+    .works-cited h3 {
+      font-size: 1.2em;
+      margin-bottom: 10px;
+    }
+
+    .works-cited-item {
+      margin-bottom: 8px;
+      padding-left: 20px;
+      text-indent: -20px;
+      line-height: 1.4;
     }
   </style>
   
@@ -939,17 +1031,11 @@
       
       // Real-time markdown processing function
       function updateMarkdown(text) {
-        // Process citations in text
+        // Process citations in text - extract numbers from citation keys for simpler display
         let htmlWithCitations = text.replace(/\[([A-Za-z]+\d{4})\]/g, (match, key) => {
           const citationKey = key;
-          const isCited = citationMapping[citationKey];
-          if (isCited) {
-            return `<a class="citation" data-key="${citationKey}" onclick="this.dispatchEvent(new CustomEvent('citation-click', {bubbles: true, detail: {key: '${citationKey}'}}))">
-              [${citationKey}]
-            </a>`;
-          } else {
-            return `<span class="citation-placeholder">${match}</span>`;
-          }
+          // Create simplified citation display
+          return `<a class="citation" data-key="${citationKey}" title="View citation details">${citationKey}</a>`;
         });
         
         // Convert markdown to HTML
@@ -961,8 +1047,69 @@
           citation.addEventListener('click', function(e) {
             const key = this.getAttribute('data-key');
             highlightCitation(key);
+            showCitationTooltip(this, key);
             e.preventDefault();
           });
+        });
+        
+        // Process "Works Cited" section specially
+        const worksCitedRegex = /##\s*Works\s+Cited\s*$|##\s*u53c2u8003u6587u732e\s*$/mi;
+        const worksCitedMatch = liveMarkdown.innerHTML.match(worksCitedRegex);
+        
+        if (worksCitedMatch) {
+          // Split content into sections
+          const sections = liveMarkdown.innerHTML.split(worksCitedRegex);
+          if (sections.length > 1) {
+            const beforeCitations = sections[0];
+            let citationsSection = sections[1];
+            
+            // Format citations section
+            citationsSection = citationsSection.replace(/<p>\s*\[([A-Za-z]+\d{4})\]([^<]+)<\/p>/g, 
+              '<div class="works-cited-item"><strong>[$1]</strong>$2</div>');
+            
+            liveMarkdown.innerHTML = beforeCitations + 
+              '<div class="works-cited"><h3>Works Cited</h3>' + 
+              citationsSection + '</div>';
+          }
+        }
+      }
+      
+      // Show citation tooltip
+      function showCitationTooltip(element, key) {
+        // Remove any existing tooltip
+        const existingTooltip = document.querySelector('.citation-tooltip');
+        if (existingTooltip) {
+          existingTooltip.remove();
+        }
+        
+        // Get citation details
+        const citation = citationMapping[key];
+        if (!citation) return;
+        
+        // Create tooltip
+        const tooltip = document.createElement('div');
+        tooltip.className = 'citation-tooltip';
+        tooltip.innerHTML = `
+          <div><strong>${citation.title}</strong></div>
+          <div><em>${citation.authors}</em> (${citation.year})</div>
+          <div style="margin-top: 5px; font-size: 12px;"><a href="${citation.link}" target="_blank">View paper</a></div>
+        `;
+        
+        // Position tooltip
+        document.body.appendChild(tooltip);
+        const rect = element.getBoundingClientRect();
+        const tooltipHeight = tooltip.offsetHeight;
+        
+        tooltip.style.left = `${rect.left}px`;
+        tooltip.style.top = `${rect.top - tooltipHeight - 10}px`;
+        tooltip.style.display = 'block';
+        
+        // Close tooltip on click outside
+        document.addEventListener('click', function closeTooltip(e) {
+          if (!tooltip.contains(e.target) && e.target !== element) {
+            tooltip.remove();
+            document.removeEventListener('click', closeTooltip);
+          }
         });
       }
       
