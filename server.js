@@ -137,6 +137,24 @@ async function searchPapers(query, limit = 30, retries = 3) {
           return [];
         })
     );
+    
+    // Search Semantic Scholar
+    searchPromises.push(
+      searchSemanticScholar(term, Math.ceil(limit/searchTerms.length))
+        .catch(err => {
+          logger('WARN', `Semantic Scholar search failed for term "${term}": ${err.message}`);
+          return [];
+        })
+    );
+    
+    // Search CORE
+    searchPromises.push(
+      searchCORE(term, Math.ceil(limit/searchTerms.length))
+        .catch(err => {
+          logger('WARN', `CORE search failed for term "${term}": ${err.message}`);
+          return [];
+        })
+    );
   }
   
   // Wait for all additional searches to complete
@@ -387,22 +405,34 @@ async function searchArXiv(query, limit = 5) {
       if (matches && matches.length > 0) {
         entries = matches.map(entry => {
           // Extract title
-          const titleMatch = entry.match(/<title>([\s\S]*?)<\/title>/);
+          const titleMatch = entry.match(/<title>(([\s\S]*?))<\/title>/);
           const title = titleMatch ? titleMatch[1].trim() : 'N/A';
           
           // Extract summary
-          const summaryMatch = entry.match(/<summary>([\s\S]*?)<\/summary>/);
+          const summaryMatch = entry.match(/<summary>(([\s\S]*?))<\/summary>/);
           const abstract = summaryMatch ? summaryMatch[1].trim() : 'No abstract available';
           
           // Extract published date
-          const publishedMatch = entry.match(/<published>([\s\S]*?)<\/published>/);
+          const publishedMatch = entry.match(/<published>(([\s\S]*?))<\/published>/);
           const year = publishedMatch ? publishedMatch[1].slice(0, 4) : 'N/A';
           
-          // Extract authors - simple approach
-          const authors = 'arXiv Authors';
+          // Extract authors - improved approach to get actual author names
+          let authors = [];
+          const authorMatches = entry.match(/<author>[\s\S]*?<\/author>/g);
+          if (authorMatches && authorMatches.length > 0) {
+            authorMatches.forEach(authorXml => {
+              const nameMatch = authorXml.match(/<name>([^<]+)<\/name>/);
+              if (nameMatch && nameMatch[1]) {
+                authors.push(nameMatch[1].trim());
+              }
+            });
+          }
+          
+          // Join author names or provide a fallback
+          const authorString = authors.length > 0 ? authors.join(', ') : 'Unknown';
           
           // Extract link
-          const idMatch = entry.match(/<id>([\s\S]*?)<\/id>/);
+          const idMatch = entry.match(/<id>(([\s\S]*?))<\/id>/);
           const link = idMatch ? idMatch[1].trim() : 'Unknown';
           
           return {
@@ -411,7 +441,7 @@ async function searchArXiv(query, limit = 5) {
             year,
             citationCount: 0,
             referenceCount: 0,
-            authors,
+            authors: authorString,
             link,
             source: 'arXiv'
           };
@@ -425,8 +455,8 @@ async function searchArXiv(query, limit = 5) {
       return [];
     }
   } catch (error) {
-    logger('ERROR', `arXiv API error:`, error.message);
-    // 返回空数组而不是抛出错误，以便程序继续运行
+    logger('ERROR', `arXiv API error: ${error.message}`);
+    // Return empty array instead of throwing an error
     return [];
   }
 }
@@ -438,87 +468,126 @@ async function searchPubMed(query, limit = 5) {
   logger('INFO', `Searching PubMed for: "${query}"`);
   
   try {
-    // 第一步：使用esearch获取论文ID
-    const searchUrl = 'https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi';
-    const searchResponse = await axios.get(searchUrl, {
-      params: {
-        db: 'pubmed',
-        term: query,
-        retmax: limit,
-        retmode: 'json',
-        sort: 'relevance'
+    // Add delay to avoid rate limiting
+    const maxRetries = 3;
+    let retries = 0;
+    let success = false;
+    let idList = [];
+    
+    // First step: Use esearch to get paper IDs with retry logic
+    while (!success && retries < maxRetries) {
+      try {
+        const searchUrl = 'https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi';
+        const searchResponse = await axios.get(searchUrl, {
+          params: {
+            db: 'pubmed',
+            term: query,
+            retmax: limit,
+            retmode: 'json',
+            sort: 'relevance',
+            // Add API key if available to increase rate limits
+            api_key: PUBMED_API_KEY || undefined
+          }
+        });
+
+        if (searchResponse.status !== 200 || !searchResponse.data || !searchResponse.data.esearchresult) {
+          logger('WARN', `PubMed search returned unexpected response format`);
+          return [];
+        }
+
+        idList = searchResponse.data.esearchresult.idlist || [];
+        logger('INFO', `Found ${idList.length} paper IDs on PubMed`);
+        success = true;
+      } catch (error) {
+        retries++;
+        if (error.response && error.response.status === 429) {
+          logger('WARN', `PubMed API rate limit hit, retrying in ${retries * 2} seconds... (Attempt ${retries}/${maxRetries})`);
+          await new Promise(resolve => setTimeout(resolve, retries * 2000)); // Exponential backoff
+        } else {
+          throw error; // If it's not a rate limit error, rethrow
+        }
       }
-    });
-
-    if (searchResponse.status !== 200 || !searchResponse.data || !searchResponse.data.esearchresult) {
-      logger('WARN', `PubMed search returned unexpected response format`);
-      return [];
     }
-
-    const idList = searchResponse.data.esearchresult.idlist || [];
-    logger('INFO', `Found ${idList.length} paper IDs on PubMed`);
     
     if (idList.length === 0) {
       return [];
     }
 
-    // 第二步：使用esummary获取论文元数据
-    const summaryUrl = 'https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi';
-    const summaryResponse = await axios.get(summaryUrl, {
-      params: {
-        db: 'pubmed',
-        id: idList.join(','),
-        retmode: 'json'
-      }
-    });
-
-    if (summaryResponse.status !== 200 || !summaryResponse.data || !summaryResponse.data.result) {
-      logger('WARN', `PubMed summary returned unexpected response format`);
-      return [];
-    }
-
-    // 处理返回的论文数据
-    const papers = [];
-    const result = summaryResponse.data.result;
+    // Reset for second API call
+    retries = 0;
+    success = false;
+    let papers = [];
     
-    // 移除uids键，因为它不是论文ID
-    const uids = result.uids || [];
-    
-    for (const id of uids) {
-      if (result[id]) {
-        const paper = result[id];
-        
-        // 提取作者信息
-        let authors = 'Unknown';
-        if (paper.authors && paper.authors.length > 0) {
-          authors = paper.authors.map(author => `${author.name}`).join(', ');
-        }
-        
-        // 提取年份
-        let year = 'N/A';
-        if (paper.pubdate) {
-          const dateMatch = paper.pubdate.match(/(\d{4})/);
-          year = dateMatch ? dateMatch[1] : 'N/A';
-        }
-        
-        papers.push({
-          title: paper.title || 'No title available',
-          abstract: paper.abstract || paper.booktitle || 'No abstract available',
-          year: year,
-          citationCount: 0, // PubMed不提供引用计数
-          referenceCount: 0,
-          authors: authors,
-          link: `https://pubmed.ncbi.nlm.nih.gov/${id}/`,
-          source: 'PubMed'
+    // Second step: Use esummary to get paper metadata with retry logic
+    while (!success && retries < maxRetries) {
+      try {
+        const summaryUrl = 'https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi';
+        const summaryResponse = await axios.get(summaryUrl, {
+          params: {
+            db: 'pubmed',
+            id: idList.join(','),
+            retmode: 'json',
+            // Add API key if available
+            api_key: PUBMED_API_KEY || undefined
+          }
         });
+
+        if (summaryResponse.status !== 200 || !summaryResponse.data || !summaryResponse.data.result) {
+          logger('WARN', `PubMed summary returned unexpected response format`);
+          return [];
+        }
+
+        // Process paper data
+        const result = summaryResponse.data.result;
+        const uids = result.uids || [];
+        
+        for (const id of uids) {
+          if (result[id]) {
+            const paper = result[id];
+            
+            // Extract author information
+            let authors = 'Unknown';
+            if (paper.authors && paper.authors.length > 0) {
+              authors = paper.authors.map(author => `${author.name}`).join(', ');
+            }
+            
+            // Extract year
+            let year = 'N/A';
+            if (paper.pubdate) {
+              const dateMatch = paper.pubdate.match(/(\d{4})/);
+              year = dateMatch ? dateMatch[1] : 'N/A';
+            }
+            
+            papers.push({
+              title: paper.title || 'No title available',
+              abstract: paper.abstract || paper.booktitle || 'No abstract available',
+              year: year,
+              citationCount: 0, // PubMed doesn't provide citation count
+              referenceCount: 0,
+              authors: authors,
+              link: `https://pubmed.ncbi.nlm.nih.gov/${id}/`,
+              source: 'PubMed'
+            });
+          }
+        }
+        
+        success = true;
+      } catch (error) {
+        retries++;
+        if (error.response && error.response.status === 429) {
+          logger('WARN', `PubMed API rate limit hit, retrying in ${retries * 2} seconds... (Attempt ${retries}/${maxRetries})`);
+          await new Promise(resolve => setTimeout(resolve, retries * 2000)); // Exponential backoff
+        } else {
+          throw error; // If it's not a rate limit error, rethrow
+        }
       }
     }
     
     logger('INFO', `Successfully processed ${papers.length} papers from PubMed`);
     return papers;
   } catch (error) {
-    logger('ERROR', `PubMed API error:`, error.message);
-    // 返回空数组而不是抛出错误，以便程序继续运行
+    logger('ERROR', `PubMed API error: ${error.message}`);
+    // Return empty array instead of throwing an error so the program can continue
     return [];
   }
 }
@@ -1017,239 +1086,161 @@ app.post('/question', async (req, res) => {
 });
 
 /**
- * Streams a response from OpenAI API token-by-token
- * 
- * @param {string} prompt - The prompt to send to OpenAI
- * @param {object} res - Express response object for SSE
- * @param {string} stage - Current processing stage
- * @param {string} model - OpenAI model to use
- * @returns {Promise<string>} - Complete text response
+ * Searches Semantic Scholar API with a specific query term
  */
-async function streamOpenAIResponse(prompt, res, stage, model = MODEL_PREMIUM) {
-  const systemMessage = {
-    role: "system",
-    content: "You are a professional academic writer crafting a response based solely on provided research."
-  };
-
+async function searchSemanticScholar(query, limit = 5) {
+  logger('INFO', `Searching Semantic Scholar for: "${query}"`);
+  
   try {
-    // Signal start of streaming for this stage
-    if (res) {
-      res.write(`data: ${JSON.stringify({
-        status: 'streaming',
-        stage: stage,
-        message: `Starting ${stage}...`
-      })}\n\n`);
-    }
+    // Implement rate limit handling with retry logic
+    const maxRetries = 3;
+    let retries = 0;
+    let success = false;
+    let papers = [];
     
-    // Accumulate the complete response
-    let completeResponse = '';
-    
-    const apiUrl = OPENAI_BASE_URL;
-    const headers = {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${OPENAI_API_KEY}`
-    };
-    
-    const body = {
-      model: model,
-      messages: [
-        systemMessage,
-        { role: "user", content: prompt }
-      ],
-      temperature: 0.7,
-      stream: true
-    };
-    
-    // Make streaming API call
-    try {
-      const response = await axios.post(apiUrl, body, {
-        headers: headers,
-        responseType: 'stream'
-      });
-      
-      response.data.on('data', (chunk) => {
-        const lines = chunk.toString().split('\n\n');
-        
-        lines.forEach(line => {
-          if (line.startsWith('data: ')) {
-            const data = line.slice(6);
-            
-            if (data === '[DONE]') return;
-            
-            try {
-              const parsedData = JSON.parse(data);
-              const content = parsedData.choices[0]?.delta?.content;
-              
-              if (content) {
-                completeResponse += content;
-                
-                // Send the token to the client
-                if (res) {
-                  res.write(`data: ${JSON.stringify({
-                    status: 'token',
-                    stage: stage,
-                    token: content
-                  })}\n\n`);
-                }
-              }
-            } catch (parseError) {
-              // Skip unparseable chunks
-              console.error('Error parsing OpenAI stream data:', parseError);
-            }
-          }
-        });
-      });
-      
-      return new Promise((resolve, reject) => {
-      
-        response.data.on('end', () => {
-          // Signal completion of this streaming phase
-          if (res) {
-            res.write(`data: ${JSON.stringify({
-              status: 'chunk_complete',
-              stage: stage,
-              message: `${stage} complete`,
-              content: completeResponse
-            })}\n\n`);
-          }
-          
-          resolve(completeResponse);
-        });
-        
-        response.data.on('error', (err) => {
-          console.error(`Stream error in ${stage}:`, err);
-          reject(err);
-        });
-      });
-      
-    } catch (apiError) {
-      console.error(`API error in ${stage}:`, apiError.message);
-      
-      // 如果流式API失败，回退到非流式API
-      const nonStreamingBody = {
-        model: model,
-        messages: [
-          systemMessage,
-          { role: "user", content: prompt }
-        ],
-        temperature: 0.7,
-        stream: false
-      };
-      
+    while (!success && retries < maxRetries) {
       try {
-        const nonStreamResponse = await axios.post(apiUrl, nonStreamingBody, {
-          headers: headers
+        const response = await axios.get(SEMSCHOLAR_BASE_URL, {
+          params: {
+            query: query,
+            limit: limit,
+            fields: 'title,abstract,authors,year,citationCount,referenceCount,url'
+          },
+          headers: {
+            'x-api-key': process.env.SEMSCHOLAR_API_KEY || ''
+          }
         });
         
-        const content = nonStreamResponse.data.choices[0].message.content;
-        return content;
-      } catch (fallbackError) {
-        console.error('Fallback API call also failed:', fallbackError);
-        throw fallbackError;
+        if (response.status === 200 && response.data && response.data.data) {
+          // Process results
+          papers = response.data.data.map(paper => {
+            // Extract authors - properly format as a string
+            let authorString = 'Unknown';
+            if (paper.authors && Array.isArray(paper.authors) && paper.authors.length > 0) {
+              authorString = paper.authors
+                .map(author => (author && typeof author === 'object' && author.name) ? author.name : 'Unknown')
+                .join(', ');
+            }
+            
+            // Make sure year is properly formatted
+            let yearString = 'Unknown';
+            if (paper.year && paper.year !== 'N/A') {
+              yearString = paper.year.toString();
+            }
+            
+            return {
+              title: paper.title || 'No title available',
+              abstract: paper.abstract || 'No abstract available',
+              year: yearString,
+              citationCount: paper.citationCount || 0,
+              referenceCount: paper.referenceCount || 0,
+              authors: authorString,
+              link: paper.url || 'No link available',
+              source: 'Semantic Scholar'
+            };
+          });
+          success = true;
+        } else {
+          logger('WARN', `Unexpected response from Semantic Scholar API: ${response.status}`);
+          return [];
+        }
+      } catch (error) {
+        retries++;
+        // Handle rate limiting specifically
+        if (error.response && (error.response.status === 429 || error.response.status === 403)) {
+          logger('WARN', `Semantic Scholar API rate limit hit, retrying in ${retries * 2} seconds... (Attempt ${retries}/${maxRetries})`);
+          await new Promise(resolve => setTimeout(resolve, retries * 2000)); // Exponential backoff
+        } else {
+          throw error; // If it's not a rate limit error, rethrow
+        }
       }
     }
+    
+    logger('INFO', `Found ${papers.length} papers on Semantic Scholar`);
+    return papers;
   } catch (error) {
-    console.error(`Error in streamOpenAIResponse for ${stage}:`, error);
-    throw error;
+    logger('ERROR', `Semantic Scholar API error: ${error.message}`);
+    return [];
   }
 }
 
 /**
- * Filter papers to select only the most relevant ones for the question.
- * 
- * @param {string} question - The research question
- * @param {Array} papers - Retrieved papers with title and abstract
- * @param {number} maxPapers - Maximum number of papers to select
- * @returns {Promise<Array>} - Array of selected papers
+ * Searches CORE API with a specific query term
  */
-async function filterRelevantPapers(question, papers, maxPapers = 25) {
-  logger('INFO', `Filtering ${papers.length} papers for relevance to question: "${question}"`);
+async function searchCORE(query, limit = 5) {
+  logger('INFO', `Searching CORE for: "${query}"`);
   
-  // If we have few papers already, no need to filter
-  if (papers.length <= maxPapers) {
-    logger('INFO', `Only ${papers.length} papers retrieved, using all without filtering`);
-    return papers;
-  }
-  
-  // Prepare paper summaries for evaluation
-  const paperSummaries = papers.map((paper, index) => {
-    return {
-      id: index,
-      title: paper.title || 'No title available',
-      abstract: paper.abstract || 'No abstract available',
-      year: paper.year || 'Unknown',
-      authors: typeof paper.authors === 'string' ? paper.authors : 
-               (Array.isArray(paper.authors) ? paper.authors.map(a => typeof a === 'string' ? a : (a.name || 'Unknown')).join(', ') : 'Unknown')
-    };
-  });
-  
-  const filterPrompt = `
-You are a research librarian helping to find the most relevant papers for a research question.
-
-Research question: "${question}"
-
-Below are summaries of ${papers.length} papers. Your task is to:
-1. Evaluate each paper's relevance to the research question based on its title and abstract
-2. Select only the most relevant papers (maximum ${maxPapers})
-3. Prefer papers with substantive content addressing the question directly
-
-Output ONLY a JSON array of paper IDs in order of relevance, like this:
-[0, 3, 5]
-
-Paper summaries:
-${JSON.stringify(paperSummaries, null, 2)}
-`;
-
   try {
-    logger('DEBUG', `Sending filter prompt to OpenAI`);
+    // Implement rate limit handling with retry logic
+    const maxRetries = 3;
+    let retries = 0;
+    let success = false;
+    let papers = [];
     
-    const response = await axios.post(OPENAI_BASE_URL, {
-      model: MODEL_BASIC, // Use the cheaper model for paper filtering
-      messages: [
-        { role: "system", content: "You are a research librarian helping to select the most relevant papers. Respond ONLY with a JSON array of paper IDs." },
-        { role: "user", content: filterPrompt }
-      ],
-      temperature: 0.2,
-      max_tokens: 150,
-    }, {
-      headers: {
-        "Authorization": `Bearer ${OPENAI_API_KEY}`,
-        "Content-Type": "application/json"
+    while (!success && retries < maxRetries) {
+      try {
+        const response = await axios.post(CORE_BASE_URL, {
+          q: query,
+          size: limit,
+          offset: 0
+        }, {
+          headers: {
+            'Authorization': `Bearer ${CORE_API_KEY}`,
+            'Content-Type': 'application/json'
+          }
+        });
+        
+        if (response.status === 200 && response.data && response.data.results) {
+          // Process results
+          papers = response.data.results.map(paper => {
+            // Process authors properly
+            let authorString = 'Unknown';
+            if (paper.authors && Array.isArray(paper.authors) && paper.authors.length > 0) {
+              authorString = paper.authors
+                .map(author => typeof author === 'string' ? author : 
+                  (author && typeof author === 'object' && author.name) ? author.name : 'Unknown')
+                .join(', ');
+            }
+            
+            // Make sure year is properly formatted
+            let yearString = 'Unknown';
+            if (paper.year && paper.year !== 'N/A') {
+              yearString = paper.year.toString();
+            }
+            
+            return {
+              title: paper.title || 'No title available',
+              abstract: paper.abstract || paper.description || 'No abstract available',
+              year: yearString,
+              citationCount: 0, // CORE doesn't provide citation count
+              referenceCount: 0,
+              authors: authorString,
+              link: paper.downloadUrl || paper.url || 'No link available',
+              source: 'CORE'
+            };
+          });
+          success = true;
+        } else {
+          logger('WARN', `Unexpected response from CORE API: ${response.status}`);
+          return [];
+        }
+      } catch (error) {
+        retries++;
+        // Handle rate limiting specifically
+        if (error.response && (error.response.status === 429 || error.response.status === 403)) {
+          logger('WARN', `CORE API rate limit hit, retrying in ${retries * 2} seconds... (Attempt ${retries}/${maxRetries})`);
+          await new Promise(resolve => setTimeout(resolve, retries * 2000)); // Exponential backoff
+        } else {
+          throw error; // If it's not a rate limit error, rethrow
+        }
       }
-    });
-    
-    let reply = response.data.choices[0].message.content.trim();
-    // Clean any markdown formatting from the response
-    reply = reply.replace(/```json|```/g, '').trim();
-    
-    try {
-      // Parse the array of selected paper IDs
-      const selectedIds = JSON.parse(reply);
-      
-      if (!Array.isArray(selectedIds)) {
-        logger('WARN', 'Response is not an array, using all papers');
-        return papers;
-      }
-      
-      // Get the selected papers
-      const selectedPapers = selectedIds.map(id => papers[id]).filter(Boolean);
-      
-      if (selectedPapers.length === 0) {
-        logger('WARN', 'No papers selected, using all papers');
-        return papers;
-      }
-      
-      logger('INFO', `Selected ${selectedPapers.length} most relevant papers out of ${papers.length}`);
-      return selectedPapers;
-    } catch (parseError) {
-      logger('ERROR', `Failed to parse paper selection response:`, reply);
-      // Fall back to using all papers
-      return papers;
     }
-  } catch (error) {
-    logger('ERROR', `Error in paper filtering:`, error.message);
-    // Fall back to using all papers
+    
+    logger('INFO', `Found ${papers.length} papers on CORE`);
     return papers;
+  } catch (error) {
+    logger('ERROR', `CORE API error: ${error.message}`);
+    return [];
   }
 }
 
@@ -1311,7 +1302,7 @@ app.get('/stream-question', async (req, res) => {
         const finalAnswer = await streamOpenAIResponse(prompt, res, 'generating_answer');
         
         // Send final metadata
-        res.write(`data: ${JSON.stringify({ 
+        res.write(`data: ${JSON.stringify({
           status: 'complete', 
           result: {
             answer: finalAnswer,
@@ -1841,55 +1832,63 @@ async function streamOpenAIResponse(prompt, res, stage, model = MODEL_PREMIUM) {
         responseType: 'stream'
       });
       
-      response.data.on('data', (chunk) => {
-        // 处理流式API响应
-        try {
-          const chunkStr = chunk.toString();
-          // 处理可解析的JSON响应
-          const lines = chunkStr.split('\n\n').filter(line => line.trim().length > 0);
-          
-          lines.forEach(line => {
-            if (line.startsWith('data: ')) {
-              const data = line.slice(6).trim();
-              
-              if (data === '[DONE]') return;
-              
-              try {
-                // 检查是否为有效的JSON响应
-                if (data && data.trim() && data.trim().startsWith('{') && data.trim().endsWith('}')) {
-                  const parsedData = JSON.parse(data);
-                  const content = parsedData.choices[0]?.delta?.content;
-                  
-                  if (content) {
-                    completeResponse += content;
-                    
-                    // 发送流式响应给客户端
-                    if (res) {
-                      res.write(`data: ${JSON.stringify({
-                        status: 'token',
-                        stage: stage,
-                        token: content
-                      })}\n\n`);
-                    }
-                  }
-                } else if (data && data !== '[DONE]') {
-                  logger('WARN', `Received non-JSON data from OpenAI: ${data.substring(0, 50)}...`);
-                }
-              } catch (parseError) {
-                // 跳过无法解析的响应
-                logger('ERROR', `JSON parse error in OpenAI stream: ${parseError.message}`, 
-                       `Data snippet: ${data.substring(0, 100)}...`);
-              }
-            }
-          });
-        } catch (chunkError) {
-          // 处理流式API响应错误
-          logger('ERROR', `Error processing OpenAI stream chunk: ${chunkError.message}`);
-        }
-      });
-      
       return new Promise((resolve, reject) => {
-      
+        let buffer = '';
+        
+        response.data.on('data', (chunk) => {
+          // Add the new chunk to our buffer
+          buffer += chunk.toString();
+          
+          // Process complete messages from the buffer
+          let processBuffer = () => {
+            // Find the position of the next data prefix
+            const dataPrefix = 'data: ';
+            const prefixIndex = buffer.indexOf(dataPrefix);
+            
+            if (prefixIndex === -1) return false; // No complete message yet
+            
+            // Find the end of this message
+            const messageEnd = buffer.indexOf('\n', prefixIndex + dataPrefix.length);
+            if (messageEnd === -1) return false; // Message not complete yet
+            
+            // Extract the message
+            const message = buffer.substring(prefixIndex + dataPrefix.length, messageEnd).trim();
+            
+            // Remove the processed message from the buffer
+            buffer = buffer.substring(messageEnd + 1);
+            
+            // Skip [DONE] messages
+            if (message === '[DONE]') return true;
+            
+            try {
+              // Parse the JSON data
+              const parsedData = JSON.parse(message);
+              const content = parsedData.choices[0]?.delta?.content;
+              
+              if (content) {
+                completeResponse += content;
+                
+                // Send the token to the client
+                if (res) {
+                  res.write(`data: ${JSON.stringify({
+                    status: 'token',
+                    stage: stage,
+                    token: content
+                  })}\n\n`);
+                }
+              }
+              return true; // Successfully processed a message
+            } catch (parseError) {
+              // Log the error but continue processing
+              logger('WARN', `Received non-JSON data from OpenAI: ${message.substring(0, 50)}...`);
+              return true; // Continue to next message
+            }
+          };
+          
+          // Process as many complete messages as we can
+          while (processBuffer()) {}
+        });
+        
         response.data.on('end', () => {
           // Signal completion of this streaming phase
           if (res) {
@@ -1905,15 +1904,15 @@ async function streamOpenAIResponse(prompt, res, stage, model = MODEL_PREMIUM) {
         });
         
         response.data.on('error', (err) => {
-          console.error(`Stream error in ${stage}:`, err);
+          logger('ERROR', `Stream error in ${stage}:`, err);
           reject(err);
         });
       });
       
     } catch (apiError) {
-      console.error(`API error in ${stage}:`, apiError.message);
+      logger('ERROR', `API error in ${stage}:`, apiError.message);
       
-      // 如果流式API失败，回退到非流式API
+      // Fallback to non-streaming API if streaming fails
       const nonStreamingBody = {
         model: model,
         messages: [
@@ -1932,12 +1931,111 @@ async function streamOpenAIResponse(prompt, res, stage, model = MODEL_PREMIUM) {
         const content = nonStreamResponse.data.choices[0].message.content;
         return content;
       } catch (fallbackError) {
-        console.error('Fallback API call also failed:', fallbackError);
+        logger('ERROR', 'Fallback API call also failed:', fallbackError);
         throw fallbackError;
       }
     }
   } catch (error) {
-    console.error(`Error in streamOpenAIResponse for ${stage}:`, error);
+    logger('ERROR', `Error in streamOpenAIResponse for ${stage}:`, error);
     throw error;
+  }
+}
+
+/**
+ * Filter papers to select only the most relevant ones for the question.
+ * 
+ * @param {string} question - The research question
+ * @param {Array} papers - Retrieved papers with title and abstract
+ * @param {number} maxPapers - Maximum number of papers to select
+ * @returns {Promise<Array>} - Array of selected papers
+ */
+async function filterRelevantPapers(question, papers, maxPapers = 25) {
+  logger('INFO', `Filtering ${papers.length} papers for relevance to question: "${question}"`);
+  
+  // If we have few papers already, no need to filter
+  if (papers.length <= maxPapers) {
+    logger('INFO', `Only ${papers.length} papers retrieved, using all without filtering`);
+    return papers;
+  }
+  
+  // Prepare paper summaries for evaluation
+  const paperSummaries = papers.map((paper, index) => {
+    return {
+      id: index,
+      title: paper.title || 'No title available',
+      abstract: paper.abstract || 'No abstract available',
+      year: paper.year || 'Unknown',
+      authors: typeof paper.authors === 'string' ? paper.authors : 
+               (Array.isArray(paper.authors) ? paper.authors.map(a => typeof a === 'string' ? a : (a.name || 'Unknown')).join(', ') : 'Unknown')
+    };
+  });
+  
+  const filterPrompt = `
+You are a research librarian helping to find the most relevant papers for a research question.
+
+Research question: "${question}"
+
+Below are summaries of ${papers.length} papers. Your task is to:
+1. Evaluate each paper's relevance to the research question based on its title and abstract
+2. Select only the most relevant papers (maximum ${maxPapers})
+3. Prefer papers with substantive content addressing the question directly
+
+Output ONLY a JSON array of paper IDs in order of relevance, like this:
+[0, 3, 5]
+
+Paper summaries:
+${JSON.stringify(paperSummaries, null, 2)}
+`;
+
+  try {
+    logger('DEBUG', `Sending filter prompt to OpenAI`);
+    
+    const response = await axios.post(OPENAI_BASE_URL, {
+      model: MODEL_BASIC, // Use the cheaper model for paper filtering
+      messages: [
+        { role: "system", content: "You are a research librarian helping to select the most relevant papers. Respond ONLY with a JSON array of paper IDs." },
+        { role: "user", content: filterPrompt }
+      ],
+      temperature: 0.2,
+      max_tokens: 150,
+    }, {
+      headers: {
+        "Authorization": `Bearer ${OPENAI_API_KEY}`,
+        "Content-Type": "application/json"
+      }
+    });
+    
+    let reply = response.data.choices[0].message.content.trim();
+    // Clean any markdown formatting from the response
+    reply = reply.replace(/```json|```/g, '').trim();
+    
+    try {
+      // Parse the array of selected paper IDs
+      const selectedIds = JSON.parse(reply);
+      
+      if (!Array.isArray(selectedIds)) {
+        logger('WARN', 'Response is not an array, using all papers');
+        return papers;
+      }
+      
+      // Get the selected papers
+      const selectedPapers = selectedIds.map(id => papers[id]).filter(Boolean);
+      
+      if (selectedPapers.length === 0) {
+        logger('WARN', 'No papers selected, using all papers');
+        return papers;
+      }
+      
+      logger('INFO', `Selected ${selectedPapers.length} most relevant papers out of ${papers.length}`);
+      return selectedPapers;
+    } catch (parseError) {
+      logger('ERROR', `Failed to parse paper selection response:`, reply);
+      // Fall back to using all papers
+      return papers;
+    }
+  } catch (error) {
+    logger('ERROR', `Error in paper filtering:`, error.message);
+    // Fall back to using all papers
+    return papers;
   }
 }
