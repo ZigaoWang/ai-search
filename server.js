@@ -44,6 +44,10 @@ const PUBMED_API_KEY = process.env.PUBMED_API_KEY;
 const OPENAI_BASE_URL = 'https://api.uniapi.io/v1/chat/completions';
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY; // Ensure your .env file has your UniAPI key
 
+// Define model constants for different tasks
+const MODEL_BASIC = "gpt-4o-mini"; // For simpler tasks: evaluation, keyword generation, filtering
+const MODEL_PREMIUM = "gpt-4o";    // For final high-quality response generation
+
 // Configure logging
 const logLevels = {
   ERROR: 0,
@@ -64,6 +68,38 @@ function logger(level, ...args) {
 }
 
 /**
+ * Expands a search query into multiple search terms
+ * Uses either alternative generation via API or simple expansion rules
+ *
+ * @param {string} query - The original search query
+ * @returns {Promise<Array<string>>} - Array of search terms
+ */
+async function expandSearchTerms(query) {
+  try {
+    // Check if query is in a non-English language
+    const isNonEnglish = await detectNonEnglishQuery(query);
+    
+    // If non-English, translate to English first
+    let englishQuery = query;
+    if (isNonEnglish) {
+      logger('INFO', `Detected non-English query, translating...`);
+      englishQuery = await translateToEnglish(query);
+      logger('INFO', `Translated query: "${englishQuery}"`);
+    }
+    
+    // Generate alternative search terms using the API
+    const searchTerms = await generateAlternativeSearchTerms(englishQuery);
+    logger('INFO', `Expanded search terms: ${searchTerms.join(', ')}`);
+    
+    return searchTerms;
+  } catch (error) {
+    logger('WARN', `Error expanding search terms: ${error.message}`);
+    // If there's an error, just return the original query
+    return [query];
+  }
+}
+
+/**
  * Searches academic databases for papers matching the query.
  * Retries if rate-limited.
  *
@@ -76,7 +112,7 @@ async function searchPapers(query, limit = 30, retries = 3) {
   logger('INFO', `Searching academic databases for: "${query}" (limit: ${limit})`);
   
   // Expand the query to multiple search terms if needed
-  const searchTerms = expandSearchTerms(query);
+  const searchTerms = await expandSearchTerms(query);
   logger('INFO', `Expanded search terms: ${searchTerms.join(', ')}`);
   
   // Store all search promises
@@ -244,7 +280,7 @@ async function detectNonEnglishQuery(query) {
 async function translateToEnglish(query) {
   try {
     const response = await axios.post(OPENAI_BASE_URL, {
-      model: "gpt-4o",
+      model: MODEL_BASIC, // Use the cheaper model for translation
       messages: [
         { 
           role: "system", 
@@ -281,7 +317,7 @@ async function generateAlternativeSearchTerms(query) {
     // For shorter queries, use the OpenAI API to generate alternatives
     if (query.length <= 100) {
       const response = await axios.post(OPENAI_BASE_URL, {
-        model: "gpt-4o",
+        model: MODEL_BASIC, // Use the cheaper model for generating search terms
         messages: [
           { 
             role: "system", 
@@ -593,7 +629,7 @@ Question: "${question}"
   try {
     logger('DEBUG', `Making request to OpenAI API for decision`);
     const response = await axios.post(OPENAI_BASE_URL, {
-      model: "gpt-4o",
+      model: MODEL_BASIC, // Use the cheaper model for this simpler task
       messages: [
         { role: "system", content: "You are a helpful assistant. Always provide raw JSON without backticks or markdown. Please use the language the user is using in their question." },
         { role: "user", content: prompt }
@@ -728,7 +764,7 @@ Briefly summarize how these papers collectively address the question.
     try {
       logger('DEBUG', `Making request to OpenAI API for analysis`);
       // 使用改进的流式处理方法
-      const paperAnalysis = await streamOpenAIResponse(analysisPrompt, null, 'analysis', "gpt-4o");
+      const paperAnalysis = await streamOpenAIResponse(analysisPrompt, null, 'analysis', MODEL_BASIC); // Use cheaper model for paper analysis
       
       logger('INFO', `Paper analysis complete (${paperAnalysis.length} characters)`);
       logger('DEBUG', `Paper analysis: ${paperAnalysis.substring(0, 500)}...`);
@@ -768,7 +804,7 @@ Please use the language the user is using in their question.
   try {
     logger('DEBUG', `Making request to OpenAI API for final answer`);
     // 使用改进的流式处理方法
-    const finalAnswer = await streamOpenAIResponse(answerPrompt, null, 'final_answer', "gpt-4o");
+    const finalAnswer = await streamOpenAIResponse(answerPrompt, null, 'final_answer', MODEL_PREMIUM); // Use premium model for final answer generation
       
     logger('INFO', `Answer generation complete (${finalAnswer.length} characters)`);
     
@@ -989,7 +1025,7 @@ app.post('/question', async (req, res) => {
  * @param {string} model - OpenAI model to use
  * @returns {Promise<string>} - Complete text response
  */
-async function streamOpenAIResponse(prompt, res, stage, model = "gpt-4o") {
+async function streamOpenAIResponse(prompt, res, stage, model = MODEL_PREMIUM) {
   const systemMessage = {
     role: "system",
     content: "You are a professional academic writer crafting a response based solely on provided research."
@@ -1143,7 +1179,7 @@ async function filterRelevantPapers(question, papers, maxPapers = 25) {
       abstract: paper.abstract || 'No abstract available',
       year: paper.year || 'Unknown',
       authors: typeof paper.authors === 'string' ? paper.authors : 
-               (Array.isArray(paper.authors) ? paper.authors.map(author => typeof author === 'string' ? author : (author.name || 'Unknown')).join(', ') : 'Unknown')
+               (Array.isArray(paper.authors) ? paper.authors.map(a => typeof a === 'string' ? a : (a.name || 'Unknown')).join(', ') : 'Unknown')
     };
   });
   
@@ -1168,7 +1204,7 @@ ${JSON.stringify(paperSummaries, null, 2)}
     logger('DEBUG', `Sending filter prompt to OpenAI`);
     
     const response = await axios.post(OPENAI_BASE_URL, {
-      model: "gpt-4o",
+      model: MODEL_BASIC, // Use the cheaper model for paper filtering
       messages: [
         { role: "system", content: "You are a research librarian helping to select the most relevant papers. Respond ONLY with a JSON array of paper IDs." },
         { role: "user", content: filterPrompt }
@@ -1181,7 +1217,7 @@ ${JSON.stringify(paperSummaries, null, 2)}
         "Content-Type": "application/json"
       }
     });
-
+    
     let reply = response.data.choices[0].message.content.trim();
     // Clean any markdown formatting from the response
     reply = reply.replace(/```json|```/g, '').trim();
@@ -1463,7 +1499,7 @@ Briefly summarize how these papers collectively address the question.
 `;
         
         // Stream the paper analysis process
-        const paperAnalysis = await streamOpenAIResponse(analysisPrompt, res, 'analyzing_papers', "gpt-4o");
+        const paperAnalysis = await streamOpenAIResponse(analysisPrompt, res, 'analyzing_papers', MODEL_BASIC); // Use cheaper model for paper analysis
         
         // Step 5: Final answer generation with token-by-token streaming
         res.write(`data: ${JSON.stringify({ 
@@ -1492,7 +1528,7 @@ Please use the language the user is using in their question.
 `;
         
         // Generate final answer with token-by-token streaming
-        const finalAnswer = await streamOpenAIResponse(answerPrompt, res, 'generating_answer', "gpt-4o");
+        const finalAnswer = await streamOpenAIResponse(answerPrompt, res, 'generating_answer', MODEL_PREMIUM); // Use premium model for final answer generation
         
         // Send final result metadata
         res.write(`data: ${JSON.stringify({ 
@@ -1763,7 +1799,7 @@ app.get('/api/daily-article', async (req, res) => {
 });
 
 // OpenAI API流式响应处理
-async function streamOpenAIResponse(prompt, res, stage, model = "gpt-4o") {
+async function streamOpenAIResponse(prompt, res, stage, model = MODEL_PREMIUM) {
   const systemMessage = {
     role: "system",
     content: "You are a professional academic writer crafting a response based solely on provided research."
