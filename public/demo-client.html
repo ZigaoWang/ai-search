@@ -479,37 +479,30 @@
     
     /* Source badge styles */
     .source-badge {
-      display: inline-block;
-      padding: 3px 8px;
-      border-radius: 12px;
-      font-size: 11px;
-      font-weight: bold;
-      margin-left: 8px;
+      font-size: 0.7rem;
+      padding: 2px 5px;
+      border-radius: 3px;
       color: white;
-      vertical-align: middle;
-      box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+      margin-right: 5px;
+      display: inline-block;
     }
     
     .source-semantic {
-      background-color: #1A7BB7;
+      background-color: #1976d2;
     }
     
-    .source-core {
-      background-color: #4CAF50;
-    }
-
     .source-arxiv {
-      background-color: #B31B1B;
+      background-color: #b31b1b;
     }
-
-    .source-ieee {
-      background-color: #0072CE;
-    }
-
+    
     .source-pubmed {
       background-color: #336699;
     }
     
+    .source-googlebooks {
+      background-color: #4285F4;
+    }
+
     /* 添加引用提示框 */
     .citation-tooltip {
       position: fixed;
@@ -1151,10 +1144,10 @@
           sourceBadgeClass = 'source-core';
         } else if (paper.source === 'arXiv') {
           sourceBadgeClass = 'source-arxiv';
-        } else if (paper.source === 'IEEE Xplore') {
-          sourceBadgeClass = 'source-ieee';
         } else if (paper.source === 'PubMed') {
           sourceBadgeClass = 'source-pubmed';
+        } else if (paper.source === 'Google Books') {
+          sourceBadgeClass = 'source-googlebooks';
         }
         
         const sourceBadge = `<span class="source-badge ${sourceBadgeClass}">${paper.source || 'Unknown'}</span>`;

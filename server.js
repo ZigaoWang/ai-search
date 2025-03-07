@@ -40,10 +40,6 @@ const PUBMED_BASE_URL = 'https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.f
 const PUBMED_SUMMARY_URL = 'https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi';
 const PUBMED_API_KEY = process.env.PUBMED_API_KEY;
 
-// IEEE Xplore API endpoint for paper search
-const IEEE_BASE_URL = 'https://ieeexploreapi.ieee.org/api/v1/search/articles';
-const IEEE_API_KEY = process.env.IEEE_API_KEY;
-
 // Use the new UniAPI endpoint for chat completions
 const OPENAI_BASE_URL = 'https://api.uniapi.io/v1/chat/completions';
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY; // Ensure your .env file has your UniAPI key
@@ -166,14 +162,6 @@ async function searchPapers(query, limit = 30, retries = 3) {
       searchPubMed(term, Math.ceil(limit/searchTerms.length))
         .catch(err => {
           logger('WARN', `PubMed search failed for term "${term}": ${err.message}`);
-          return [];
-        })
-    );
-    
-    searchPromises.push(
-      searchIEEE(term, Math.ceil(limit/searchTerms.length))
-        .catch(err => {
-          logger('WARN', `IEEE search failed for term "${term}": ${err.message}`);
           return [];
         })
     );
@@ -569,7 +557,8 @@ async function searchArXiv(query, limit = 5) {
     }
   } catch (error) {
     logger('ERROR', `arXiv API error:`, error.message);
-    return []; // Return empty array instead of throwing
+    // 返回空数组而不是抛出错误，以便程序继续运行
+    return [];
   }
 }
 
@@ -666,67 +655,6 @@ async function searchPubMed(query, limit = 5) {
 }
 
 /**
- * Searches IEEE Xplore API with a specific query term
- */
-async function searchIEEE(query, limit = 5) {
-  logger('INFO', `Searching IEEE Xplore for: "${query}"`);
-  
-  try {
-    // 使用IEEE DataPort API作为替代，不需要复杂认证
-    const response = await axios.get('https://ieee-dataport.org/api/search-documents', {
-      params: {
-        search_api_fulltext: query,
-        limit: limit,
-        format: 'json'
-      },
-      headers: {
-        "Accept": "application/json"
-      }
-    });
-
-    if (response.status === 200 && response.data && response.data.docs) {
-      const papers = response.data.docs;
-      logger('INFO', `Found ${papers.length} papers on IEEE DataPort`);
-      
-      return papers.map(paper => ({
-        title: paper.title || 'N/A',
-        abstract: paper.description || 'No abstract available',
-        year: paper.publication_date ? paper.publication_date.split('-')[0] : 'N/A',
-        citationCount: 0,
-        referenceCount: 0,
-        authors: paper.authors || 'Unknown',
-        link: paper.url || `https://ieee-dataport.org/documents/${paper.id}`,
-        source: 'IEEE Xplore'
-      }));
-    } else {
-      logger('INFO', `No papers found on IEEE DataPort or unexpected response format`);
-      return [];
-    }
-  } catch (error) {
-    // 如果IEEE DataPort API失败，使用Google Scholar作为备选
-    try {
-      logger('INFO', `Falling back to alternative search for IEEE papers with query: "${query} site:ieeexplore.ieee.org"`);
-      // 这里模拟从其他来源获取IEEE相关论文
-      return [
-        {
-          title: `IEEE Research on ${query}`,
-          abstract: `This is a placeholder for IEEE research on ${query}. The actual IEEE Xplore API requires proper authentication.`,
-          year: new Date().getFullYear().toString(),
-          citationCount: 0,
-          referenceCount: 0,
-          authors: 'IEEE Authors',
-          link: `https://ieeexplore.ieee.org/search/searchresult.jsp?queryText=${encodeURIComponent(query)}`,
-          source: 'IEEE Xplore'
-        }
-      ];
-    } catch (backupError) {
-      logger('ERROR', `Backup IEEE search failed:`, backupError.message);
-      return [];
-    }
-  }
-}
-
-/**
  * Removes duplicate papers based on title similarity
  */
 function removeDuplicatePapers(papers) {
@@ -802,309 +730,6 @@ function rankPapersByRelevance(papers, query) {
   
   // Sort by score (descending)
   return scoredPapers.sort((a, b) => b.relevanceScore - a.relevanceScore);
-}
-
-/**
- * Calls the UniAPI (OpenAI) endpoint to decide whether the query can be answered internally.
- * The prompt forces a JSON response in one of two forms:
- *  - { "canAnswer": true, "answer": "<your answer>" }
- *  - { "canAnswer": false, "queryWord": "<suggested keyword>" }
- *
- * @param {string} question - The user question.
- * @returns {Promise<Object>} - The parsed JSON result.
- */
-async function decideAnswer(question) {
-  logger('INFO', `Determining if question can be answered internally: "${question}"`);
-  
-  const prompt = `
-You are an expert AI assistant. Determine if you can answer the following question using your internal knowledge without needing external citations.
-
-IMPORTANT: Be liberal in your assessment. Only respond with canAnswer: true if the question is extremely simple and straightforward, and you are absolutely certain you can provide a complete and accurate answer without citations. Otherwise, respond with canAnswer: false.
-
-Return ONLY raw, parseable JSON in one of these two formats:
-1. {"canAnswer": true, "answer": "your answer here"}
-2. {"canAnswer": false, "queryWord": "suggested search keyword"}
-
-Do not include backticks, markdown formatting, or any other text.
-Question: "${question}"
-`;
-
-  try {
-    logger('DEBUG', `Making request to OpenAI API for decision`);
-    const response = await axios.post(OPENAI_BASE_URL, {
-      model: "gpt-4o",
-      messages: [
-        { role: "system", content: "You are a helpful assistant. Always provide raw JSON without backticks or markdown. Please use the language the user is using in their question." },
-        { role: "user", content: prompt }
-      ],
-      temperature: 0.2,
-      max_tokens: 300,
-    }, {
-      headers: {
-        "Authorization": `Bearer ${OPENAI_API_KEY}`,
-        "Content-Type": "application/json"
-      }
-    });
-
-    // Clean any markdown formatting from the response
-    let reply = response.data.choices[0].message.content.trim();
-    logger('DEBUG', `Raw OpenAI response: ${reply}`);
-    
-    // Remove markdown code blocks if present
-    reply = reply.replace(/```json|```/g, '').trim();
-    
-    try {
-      const parsedResponse = JSON.parse(reply);
-      logger('INFO', `Decision: ${parsedResponse.canAnswer ? 'Can answer internally' : 'Needs external research'}`);
-      if (!parsedResponse.canAnswer) {
-        logger('INFO', `Suggested search term: "${parsedResponse.queryWord}"`);
-      }
-      return parsedResponse;
-    } catch (parseError) {
-      logger('ERROR', `Failed to parse AI response as JSON:`, reply);
-      throw new Error("Invalid JSON response from OpenAI API");
-    }
-  } catch (error) {
-    logger('ERROR', `OpenAI API error:`, error.message);
-    throw error;
-  }
-}
-
-/**
- * Generates a comprehensive answer with citations using a two-step process:
- * 1. Analyze papers and extract key points
- * 2. Generate answer using only the extracted information
- * 
- * @param {string} question - The original question.
- * @param {Array} citations - Array of citation objects.
- * @returns {Promise<Object>} - The generated answer, analysis, and citation mapping.
- */
-async function generateAnswerWithCitations(question, citations) {
-  logger('INFO', `Generating answer with citations for question: "${question}"`);
-  logger('INFO', `Processing ${citations.length} citations`);
-  
-  // Prepare citation keys for references
-  const citationsWithKeys = citations.map((citation, index) => {
-    let authorLastName = 'Unknown';
-    
-    if (typeof citation.authors === 'string') {
-      // If authors is already a string, extract the first author's last name
-      const authorParts = citation.authors.split(',')[0].trim().split(' ');
-      authorLastName = authorParts[authorParts.length - 1];
-    } else if (Array.isArray(citation.authors) && citation.authors.length > 0) {
-      // If authors is an array, get the last name of the first author
-      const firstAuthor = citation.authors[0];
-      if (typeof firstAuthor === 'string') {
-        const authorParts = firstAuthor.trim().split(' ');
-        authorLastName = authorParts[authorParts.length - 1];
-      } else if (firstAuthor && firstAuthor.name) {
-        const authorParts = firstAuthor.name.trim().split(' ');
-        authorLastName = authorParts[authorParts.length - 1];
-      }
-    }
-    
-    // Use year if available
-    const year = citation.year || 'n.d.';
-    
-    // Create citation key
-    const citationKey = `[${authorLastName}${year}]`;
-    
-    return {
-      ...citation,
-      citationKey
-    };
-  });
-  
-  // Split citations into batches for parallel processing
-  const BATCH_SIZE = 5;
-  const citationBatches = [];
-  
-  for (let i = 0; i < citationsWithKeys.length; i += BATCH_SIZE) {
-    citationBatches.push(citationsWithKeys.slice(i, i + BATCH_SIZE));
-  }
-  
-  logger('INFO', `Split ${citationsWithKeys.length} citations into ${citationBatches.length} batches`);
-  
-  // Process each batch sequentially
-  const batchResults = [];
-  for (const batch of citationBatches) {
-    // Format citations for analysis
-    const citationsText = batch.map((citation) => {
-      return `Citation [${citation.citationKey}]:
-Title: ${citation.title}
-Abstract: ${citation.abstract}
-Authors: ${typeof citation.authors === 'string' ? citation.authors : (Array.isArray(citation.authors) ? citation.authors.join(', ') : 'Unknown')}
-Year: ${citation.year}
-Key Points: Please extract 3-5 key points from this paper relevant to the question.
-`;
-    }).join('\n\n');
-    
-    // Analysis prompt
-    const analysisPrompt = `
-You are a professional academic researcher analyzing scientific papers. Your task is to:
-1. Carefully read each paper abstract below
-2. Extract the most relevant information to the question: "${question}"
-3. For each paper, identify 3-5 key claims or findings that address the question
-4. Note any limitations or contradictions between papers
-5. Please use the language the user is using in their question.
-
-${citationsText}
-
-Format your analysis as follows:
-PAPER ANALYSIS:
-[CitationKey1]: 
-- Key finding 1
-- Key finding 2
-...
-
-[CitationKey2]:
-...
-
-SYNTHESIS:
-Briefly summarize how these papers collectively address the question.
-`;
-    
-    try {
-      logger('DEBUG', `Making request to OpenAI API for analysis`);
-      // 使用改进的流式处理方法
-      const paperAnalysis = await streamOpenAIResponse(analysisPrompt, null, 'analysis', "gpt-4o");
-      
-      logger('INFO', `Paper analysis complete (${paperAnalysis.length} characters)`);
-      logger('DEBUG', `Paper analysis: ${paperAnalysis.substring(0, 500)}...`);
-      
-      batchResults.push(paperAnalysis);
-    } catch (error) {
-      logger('ERROR', `OpenAI API error in generating analysis:`, error.message);
-      throw error;
-    }
-  }
-  
-  // Combine batch results
-  const combinedAnalysis = batchResults.join('\n\n');
-  
-  // Step 2: Generate the final answer using the combined analysis
-  logger('INFO', `Generating final answer with combined analysis`);
-  
-  // Answer prompt
-  const answerPrompt = `
-You are writing an academic response to the question: "${question}"
-
-You must use the following paper analysis to craft your response:
-${combinedAnalysis}
-
-Important requirements:
-1. Every claim must be supported by a specific citation using the format [AuthorYear] inline
-2. Only include information that is directly supported by the papers in the analysis
-3. Do not introduce new information not found in the papers
-4. Maintain academic rigor and precision
-5. Include a properly formatted Works Cited section at the end using MLA format
-6. Structure your answer with clear sections and paragraphs
-
-The citation keys to use are: ${citationsWithKeys.map(c => `[${c.citationKey}]`).join(', ')}
-Please use the language the user is using in their question.
-`;
-  
-  try {
-    logger('DEBUG', `Making request to OpenAI API for final answer`);
-    // 使用改进的流式处理方法
-    const finalAnswer = await streamOpenAIResponse(answerPrompt, null, 'final_answer', "gpt-4o");
-      
-    logger('INFO', `Answer generation complete (${finalAnswer.length} characters)`);
-    
-    // Final answer with proper citations
-    logger('INFO', `Answer generation process complete`);
-    return {
-      answer: finalAnswer,
-      analysis: combinedAnalysis,
-      citationMapping: citationsWithKeys.map(c => ({ 
-        key: c.citationKey, 
-        title: c.title,
-        authors: c.authors,
-        year: c.year,
-        link: c.link
-      }))
-    };
-  } catch (error) {
-    logger('ERROR', `OpenAI API error in generating answer:`, error.message);
-    throw error;
-  }
-}
-
-/**
- * Process a question through the research pipeline
- * 
- * @param {string} question - The user question
- * @returns {Promise<Object>} - The result object with answer and metadata
- */
-async function processQuestion(question) {
-  logger('INFO', `Starting research process for question: "${question}"`);
-  
-  try {
-    // Step 1: Determine if the question can be answered internally
-    logger('INFO', `PROCESS STAGE 1: Evaluating question scope`);
-    const decision = await decideAnswer(question);
-    
-    if (decision.canAnswer) {
-      logger('INFO', `Question can be answered with internal knowledge - no research needed`);
-      return {
-        answer: decision.answer,
-        citations: [],
-        note: "Answer provided solely based on internal knowledge; no citations required.",
-        processSteps: ["Evaluated question scope", "Determined internal knowledge sufficient", "Generated answer"]
-      };
-    } else {
-      // Step 2: Fetch relevant papers
-      logger('INFO', `PROCESS STAGE 2: Retrieving relevant research papers`);
-      const queryWord = decision.queryWord;
-      const papers = await searchPapers(queryWord);
-      
-      if (!papers || papers.length === 0) {
-        logger('WARN', `No papers found for query: "${queryWord}"`);
-        return {
-          answer: `我无法找到与"${question}"相关的学术文章，使用搜索词"${queryWord}"。`,
-          queryWord: queryWord,
-          citations: [],
-          processSteps: ["Evaluated question scope", "Determined research needed", "Retrieved 0 papers", "Generated response"]
-        };
-      }
-      
-      const citations = papers.map(paper => ({
-        title: paper.title || 'N/A',
-        abstract: paper.abstract || 'No abstract available',
-        year: paper.year || 'N/A',
-        citationCount: (paper.citationCount !== undefined) ? paper.citationCount : 0,
-        referenceCount: (paper.referenceCount !== undefined) ? paper.referenceCount : 0,
-        authors: (typeof paper.authors === 'string') ? paper.authors : 
-                 (Array.isArray(paper.authors) ? paper.authors.map(a => typeof a === 'string' ? a : (a.name || 'Unknown')).join(', ') : 'Unknown'),
-        link: paper.link || 'N/A'
-      }));
-      
-      logger('INFO', `Retrieved ${citations.length} papers for analysis`);
-      
-      // Step 3: Generate a comprehensive answer using the citations
-      logger('INFO', `PROCESS STAGE 3: Generating comprehensive answer with citations`);
-      const result = await generateAnswerWithCitations(question, citations);
-      
-      logger('INFO', `Research process completed successfully`);
-      return {
-        answer: result.answer,
-        queryWord: queryWord,
-        citations: citations,
-        paperAnalysis: result.analysis,
-        citationMapping: result.citationMapping,
-        processSteps: [
-          "Evaluated question scope", 
-          "Determined research needed", 
-          `Retrieved ${citations.length} papers`,
-          "Analyzed paper content",
-          "Generated comprehensive answer with citations"
-        ]
-      };
-    }
-  } catch (error) {
-    logger('ERROR', `Error in research process:`, error.message);
-    throw error;
-  }
 }
 
 /**
@@ -1846,7 +1471,7 @@ app.get('/stream-question', async (req, res) => {
             const formattedPapers = formatPapersForClientResponse(papers);
             
             // Let the client know that papers are being found
-            res.write(`data: ${JSON.stringify({ 
+            res.write(`data: ${JSON.stringify({
               status: 'papers_finding', 
               papers: formattedPapers,
               count: formattedPapers.length,
@@ -1903,8 +1528,8 @@ app.get('/stream-question', async (req, res) => {
           title: paper.title || 'N/A',
           abstract: paper.abstract || 'No abstract available',
           year: paper.year || 'N/A',
-          citationCount: (paper.citationCount !== undefined) ? paper.citationCount : 0,
-          referenceCount: (paper.referenceCount !== undefined) ? paper.referenceCount : 0,
+          citationCount: paper.citationCount || 0,
+          referenceCount: paper.referenceCount || 0,
           authors: typeof paper.authors === 'string' ? paper.authors : (Array.isArray(paper.authors) ? paper.authors.join(', ') : 'Unknown'),
           link: paper.link || paper.url || paper.externalIds?.DOI || '',
           id: paper.paperId || paper.id || Math.random().toString(36).substring(2, 15)
@@ -1936,8 +1561,8 @@ app.get('/stream-question', async (req, res) => {
           
           if (typeof citation.authors === 'string') {
             // If authors is already a string, extract the first author's last name
-            const firstAuthor = citation.authors.split(',')[0];
-            authorLastName = firstAuthor ? firstAuthor.split(' ').pop() : 'Unknown';
+            const authorParts = citation.authors.split(',')[0].trim().split(' ');
+            authorLastName = authorParts[authorParts.length - 1];
           } else if (Array.isArray(citation.authors) && citation.authors.length > 0) {
             // If authors is an array, get the first author
             const firstAuthor = citation.authors[0];
