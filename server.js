@@ -75,89 +75,25 @@ function logger(level, ...args) {
 async function searchPapers(query, limit = 30, retries = 3) {
   logger('INFO', `Searching academic databases for: "${query}" (limit: ${limit})`);
   
-  // Check cache first
-  const cacheKey = query.toLowerCase().trim();
-  if (searchCache.has(cacheKey)) {
-    const cachedItem = searchCache.get(cacheKey);
-    if (Date.now() - cachedItem.timestamp < CACHE_TTL) {
-      logger('INFO', `Using cached results for query: "${query}"`);
-      return cachedItem.results;
-    } else {
-      searchCache.delete(cacheKey); // Remove expired item
-    }
-  }
+  // Expand the query to multiple search terms if needed
+  const searchTerms = expandSearchTerms(query);
+  logger('INFO', `Expanded search terms: ${searchTerms.join(', ')}`);
   
-  // Translate query to English if it's not in English
-  let englishQuery = query;
-  if (await detectNonEnglishQuery(query)) {
-    englishQuery = await translateToEnglish(query);
-    logger('INFO', `Translated query from non-English to: "${englishQuery}"`);
-  }
-
-  // Generate alternative search terms
-  const searchTerms = await generateAlternativeSearchTerms(englishQuery);
-  logger('INFO', `Generated search terms: ${searchTerms.join(', ')}`);
-  
-  // Results from different APIs and search terms
-  let allResults = [];
-  
-  // Execute searches in parallel
+  // Store all search promises
   const searchPromises = [];
   
-  // First search with the primary term to get quick results
-  const primaryPromises = [
-    searchSemanticScholar(searchTerms[0], Math.ceil(limit/3), retries)
-      .catch(err => {
-        logger('WARN', `Primary Semantic Scholar search failed: ${err.message}`);
-        return [];
-      })
-  ];
-  
-  if (CORE_API_KEY) {
-    primaryPromises.push(
-      searchCore(searchTerms[0], Math.ceil(limit/3))
-        .catch(err => {
-          logger('WARN', `Primary CORE search failed: ${err.message}`);
-          return [];
-        })
-    );
-  }
-  
-  // Wait for primary results first
-  const primaryResultsArrays = await Promise.all(primaryPromises);
-  for (const results of primaryResultsArrays) {
-    allResults = allResults.concat(results);
-  }
-  
-  // Now search with all the alternative terms in parallel
-  for (const term of searchTerms.slice(1)) {  // Skip the first term (already searched)
-    searchPromises.push(
-      searchSemanticScholar(term, Math.ceil(limit/searchTerms.length), retries)
-        .catch(err => {
-          logger('WARN', `Semantic Scholar search failed for term "${term}": ${err.message}`);
-          return [];
-        })
-    );
-    
-    if (CORE_API_KEY) {
-      searchPromises.push(
-        searchCore(term, Math.ceil(limit/searchTerms.length))
-          .catch(err => {
-            logger('WARN', `CORE search failed for term "${term}": ${err.message}`);
-            return [];
-          })
-      );
-    }
-    
-    // Add new database searches
+  // Search for each term
+  for (const term of searchTerms) {
+    // Search arXiv
     searchPromises.push(
       searchArXiv(term, Math.ceil(limit/searchTerms.length))
         .catch(err => {
-          logger('WARN', `arXiv search failed for term "${term}": ${err.message}`);
+          logger('WARN', `ArXiv search failed for term "${term}": ${err.message}`);
           return [];
         })
     );
     
+    // Search PubMed
     searchPromises.push(
       searchPubMed(term, Math.ceil(limit/searchTerms.length))
         .catch(err => {
@@ -170,37 +106,35 @@ async function searchPapers(query, limit = 30, retries = 3) {
   // Wait for all additional searches to complete
   const searchResults = await Promise.all(searchPromises);
   
-  // Combine results
-  for (const results of searchResults) {
-    allResults = allResults.concat(results);
-  }
+  // Combine all search results
+  let allPapers = [];
+  searchResults.forEach(papers => {
+    allPapers = [...allPapers, ...papers];
+  });
   
-  logger('INFO', `Found ${allResults.length} papers across all search terms and APIs before deduplication`);
+  logger('INFO', `Found ${allPapers.length} papers in total before deduplication`);
   
   // Remove duplicates
-  const uniqueResults = removeDuplicatePapers(allResults);
-  logger('INFO', `Removed ${allResults.length - uniqueResults.length} duplicate papers`);
+  const uniquePapers = removeDuplicatePapers(allPapers);
+  logger('INFO', `Found ${uniquePapers.length} unique papers`);
   
-  // Ensure we have a good mix of sources - rebalance if needed
-  const rebalancedResults = balanceResultSources(uniqueResults, limit);
-  
-  // Rank papers by relevance to the query
-  const rankedResults = rankPapersByRelevance(rebalancedResults, englishQuery)
-    .slice(0, Math.max(15, limit * 2)); // Increase result limit to return more papers
-  
-  logger('INFO', `Found ${rankedResults.length} papers across all academic databases`);
-  
-  // Count sources in final results for logging
-  const sourceCounts = {};
-  rankedResults.forEach(paper => {
-    sourceCounts[paper.source] = (sourceCounts[paper.source] || 0) + 1;
+  // Sort papers by relevance (currently using citation count as a proxy for relevance)
+  const sortedPapers = uniquePapers.sort((a, b) => {
+    // Use citation count as primary sort criteria if available
+    const citationDiff = (b.citationCount || 0) - (a.citationCount || 0);
+    if (citationDiff !== 0) return citationDiff;
+    
+    // If citation counts are the same, use recency (publication year) as secondary criteria
+    const yearA = parseInt(a.year) || 0;
+    const yearB = parseInt(b.year) || 0;
+    return yearB - yearA;
   });
-  logger('INFO', `Sources distribution: ${JSON.stringify(sourceCounts)}`);
   
-  // Cache the results
-  searchCache.set(cacheKey, { results: rankedResults, timestamp: Date.now() });
+  // Limit the number of papers
+  const limitedPapers = sortedPapers.slice(0, limit);
+  logger('INFO', `Returning ${limitedPapers.length} papers`);
   
-  return rankedResults;
+  return limitedPapers;
 }
 
 /**
@@ -388,107 +322,6 @@ async function generateAlternativeSearchTerms(query) {
   } catch (error) {
     logger('WARN', `Error generating alternative search terms: ${error.message}`);
     return [query]; // Fall back to just the original query
-  }
-}
-
-/**
- * Searches Semantic Scholar API with a specific query term
- */
-async function searchSemanticScholar(query, limit = 5, retries = 3) {
-  logger('DEBUG', `Searching Semantic Scholar for: "${query}"`);
-  
-  try {
-    const response = await axios.get(SEMSCHOLAR_BASE_URL, {
-      params: {
-        query: query,
-        limit: limit,
-        fields: "paperId,title,authors,year,abstract,citationCount,referenceCount"
-      }
-    });
-
-    if (response.status === 200 && response.data && response.data.data) {
-      const papers = response.data.data;
-      logger('DEBUG', `Found ${papers.length} papers on Semantic Scholar`);
-      
-      return papers.map(paper => ({
-        title: paper.title || 'No title available',
-        abstract: paper.abstract || 'No abstract available',
-        year: paper.year || 'Unknown',
-        citationCount: paper.citationCount || 0,
-        referenceCount: paper.referenceCount || 0,
-        // Handle authors consistently
-        authors: typeof paper.authors === 'string' ? paper.authors : 
-                 (Array.isArray(paper.authors) ? 
-                   paper.authors.map(author => {
-                     if (typeof author === 'string') return author;
-                     return (author && author.name) ? author.name : 'Unknown';
-                   }).join(', ') 
-                 : 'Unknown'),
-        link: paper.url || `https://www.semanticscholar.org/paper/${paper.paperId}`,
-        source: 'Semantic Scholar'
-      }));
-    } else {
-      logger('ERROR', `Unexpected response from Semantic Scholar API`, response.status, response.data);
-      return [];
-    }
-  } catch (error) {
-    if (error.response && error.response.status === 429 && retries > 0) {
-      logger('WARN', `Rate limit reached (429). Retrying in 3 seconds... (${retries} retries left)`);
-      await sleep(3000);
-      return searchSemanticScholar(query, limit, retries - 1);
-    } else {
-      logger('ERROR', `Semantic Scholar API error:`, error.message);
-      throw error;
-    }
-  }
-}
-
-/**
- * Searches CORE API with a specific query term
- */
-async function searchCore(query, limit = 5) {
-  logger('INFO', `Searching CORE for: "${query}"`);
-  
-  try {
-    if (!CORE_API_KEY) {
-      logger('ERROR', 'CORE API key not provided');
-      return [];
-    }
-    
-    logger('INFO', `Calling CORE API with URL: ${CORE_BASE_URL} and API key ${CORE_API_KEY ? 'is present' : 'is missing'}`);
-    const response = await axios.post(CORE_BASE_URL, {
-      q: query,
-      limit: limit,
-      scroll: false
-    }, {
-      headers: {
-        "Authorization": `Bearer ${CORE_API_KEY}`,
-        "Content-Type": "application/json"
-      }
-    });
-
-    if (response.status === 200 && response.data && response.data.results) {
-      const papers = response.data.results;
-      logger('INFO', `Found ${papers.length} papers on CORE`);
-      
-      return papers.map(paper => ({
-        title: paper.title || 'N/A',
-        abstract: paper.abstract || 'No abstract available',
-        year: paper.yearPublished ? paper.yearPublished.toString() : 'N/A',
-        citationCount: 0, // CORE doesn't provide citation count in basic response
-        referenceCount: 0,
-        authors: typeof paper.authors === 'string' ? paper.authors : 
-                 (Array.isArray(paper.authors) ? paper.authors.map(author => typeof author === 'string' ? author : (author.name || 'Unknown')).join(', ') : 'Unknown'),
-        link: paper.downloadUrl || paper.identifiers.find(id => id.includes('doi.org')) || paper.repositoryDocument?.pdfUrl || 'Unknown',
-        source: 'CORE'
-      }));
-    } else {
-      logger('ERROR', `Unexpected response from CORE API`, response.status, response.data);
-      return [];
-    }
-  } catch (error) {
-    logger('ERROR', `CORE API error:`, error.message);
-    throw error;
   }
 }
 
@@ -1528,8 +1361,8 @@ app.get('/stream-question', async (req, res) => {
           title: paper.title || 'N/A',
           abstract: paper.abstract || 'No abstract available',
           year: paper.year || 'N/A',
-          citationCount: paper.citationCount || 0,
-          referenceCount: paper.referenceCount || 0,
+          citationCount: (paper.citationCount !== undefined) ? paper.citationCount : 0,
+          referenceCount: (paper.referenceCount !== undefined) ? paper.referenceCount : 0,
           authors: typeof paper.authors === 'string' ? paper.authors : (Array.isArray(paper.authors) ? paper.authors.join(', ') : 'Unknown'),
           link: paper.link || paper.url || paper.externalIds?.DOI || '',
           id: paper.paperId || paper.id || Math.random().toString(36).substring(2, 15)
@@ -1561,8 +1394,8 @@ app.get('/stream-question', async (req, res) => {
           
           if (typeof citation.authors === 'string') {
             // If authors is already a string, extract the first author's last name
-            const authorParts = citation.authors.split(',')[0].trim().split(' ');
-            authorLastName = authorParts[authorParts.length - 1];
+            const firstAuthor = citation.authors.split(',')[0];
+            authorLastName = firstAuthor ? firstAuthor.split(' ').pop() : 'Unknown';
           } else if (Array.isArray(citation.authors) && citation.authors.length > 0) {
             // If authors is an array, get the first author
             const firstAuthor = citation.authors[0];
