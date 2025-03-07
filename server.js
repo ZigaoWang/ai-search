@@ -580,53 +580,88 @@ async function searchPubMed(query, limit = 5) {
   logger('INFO', `Searching PubMed for: "${query}"`);
   
   try {
-    const response = await axios.get(PUBMED_BASE_URL, {
+    // 第一步：使用esearch获取论文ID
+    const searchUrl = 'https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi';
+    const searchResponse = await axios.get(searchUrl, {
       params: {
         db: 'pubmed',
         term: query,
         retmax: limit,
-        usehistory: 'y'
+        retmode: 'json',
+        sort: 'relevance'
       }
     });
 
-    if (response.status === 200 && response.data) {
-      const paperIds = response.data.split('\n').filter(line => line.startsWith('PMID-')).map(line => line.split('-')[1].trim());
-      logger('INFO', `Found ${paperIds.length} papers on PubMed`);
-      
-      const papers = [];
-      for (const paperId of paperIds) {
-        const paperResponse = await axios.get(PUBMED_SUMMARY_URL, {
-          params: {
-            db: 'pubmed',
-            id: paperId,
-            rettype: 'abstract',
-            retmode: 'text'
-          }
-        });
-        
-        if (paperResponse.status === 200 && paperResponse.data) {
-          const paperData = paperResponse.data.split('\n').filter(line => line.startsWith('TI  - '))[0].split('TI  - ')[1].trim();
-          papers.push({
-            title: paperData,
-            abstract: paperResponse.data.split('\n').filter(line => line.startsWith('AB  - '))[0].split('AB  - ')[1].trim(),
-            year: paperResponse.data.split('\n').filter(line => line.startsWith('DP  - '))[0].split('DP  - ')[1].trim(),
-            citationCount: 0, // PubMed doesn't provide citation count
-            referenceCount: 0,
-            authors: paperResponse.data.split('\n').filter(line => line.startsWith('AU  - '))[0].split('AU  - ')[1].trim(),
-            link: `https://pubmed.ncbi.nlm.nih.gov/${paperId}/`,
-            source: 'PubMed'
-          });
-        }
-      }
-      
-      return papers;
-    } else {
-      logger('ERROR', `Unexpected response from PubMed API`, response.status, response.data);
+    if (searchResponse.status !== 200 || !searchResponse.data || !searchResponse.data.esearchresult) {
+      logger('WARN', `PubMed search returned unexpected response format`);
       return [];
     }
+
+    const idList = searchResponse.data.esearchresult.idlist || [];
+    logger('INFO', `Found ${idList.length} paper IDs on PubMed`);
+    
+    if (idList.length === 0) {
+      return [];
+    }
+
+    // 第二步：使用esummary获取论文元数据
+    const summaryUrl = 'https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi';
+    const summaryResponse = await axios.get(summaryUrl, {
+      params: {
+        db: 'pubmed',
+        id: idList.join(','),
+        retmode: 'json'
+      }
+    });
+
+    if (summaryResponse.status !== 200 || !summaryResponse.data || !summaryResponse.data.result) {
+      logger('WARN', `PubMed summary returned unexpected response format`);
+      return [];
+    }
+
+    // 处理返回的论文数据
+    const papers = [];
+    const result = summaryResponse.data.result;
+    
+    // 移除uids键，因为它不是论文ID
+    const uids = result.uids || [];
+    
+    for (const id of uids) {
+      if (result[id]) {
+        const paper = result[id];
+        
+        // 提取作者信息
+        let authors = 'Unknown';
+        if (paper.authors && paper.authors.length > 0) {
+          authors = paper.authors.map(author => `${author.name}`).join(', ');
+        }
+        
+        // 提取年份
+        let year = 'N/A';
+        if (paper.pubdate) {
+          const dateMatch = paper.pubdate.match(/(\d{4})/);
+          year = dateMatch ? dateMatch[1] : 'N/A';
+        }
+        
+        papers.push({
+          title: paper.title || 'No title available',
+          abstract: paper.abstract || paper.booktitle || 'No abstract available',
+          year: year,
+          citationCount: 0, // PubMed不提供引用计数
+          referenceCount: 0,
+          authors: authors,
+          link: `https://pubmed.ncbi.nlm.nih.gov/${id}/`,
+          source: 'PubMed'
+        });
+      }
+    }
+    
+    logger('INFO', `Successfully processed ${papers.length} papers from PubMed`);
+    return papers;
   } catch (error) {
     logger('ERROR', `PubMed API error:`, error.message);
-    throw error;
+    // 返回空数组而不是抛出错误，以便程序继续运行
+    return [];
   }
 }
 
