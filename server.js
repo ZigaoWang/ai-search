@@ -3,17 +3,18 @@ const express = require('express');
 const axios = require('axios');
 const util = require('util');
 const sleep = util.promisify(setTimeout);
-const { nanoid } = require('nanoid'); // 添加nanoid导入
+const { nanoid } = require('nanoid');
 
 const app = express();
 const port = process.env.PORT || 3000;
+const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3001';
 
 // Add middleware to parse JSON bodies
 app.use(express.json());
 
-// Enable CORS for all routes
+// Enable CORS only for the frontend
 app.use((req, res, next) => {
-  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Origin', frontendUrl);
   res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
   res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   if (req.method === 'OPTIONS') {
@@ -22,8 +23,7 @@ app.use((req, res, next) => {
   next();
 });
 
-// Serve static files from 'public' directory
-app.use(express.static('public'));
+// Backend API endpoints only - no static file serving
 
 // Semantic Scholar API endpoint for paper search
 const SEMSCHOLAR_BASE_URL = 'https://api.semanticscholar.org/graph/v1/paper/search';
@@ -942,7 +942,8 @@ async function processQuestion(question) {
         referenceCount: (paper.referenceCount !== undefined) ? paper.referenceCount : 0,
         authors: (typeof paper.authors === 'string') ? paper.authors : 
                  (Array.isArray(paper.authors) ? paper.authors.map(a => typeof a === 'string' ? a : (a.name || 'Unknown')).join(', ') : 'Unknown'),
-        link: paper.link || 'N/A'
+        link: paper.link || paper.url || paper.externalIds?.DOI || '',
+        id: paper.paperId || paper.id || Math.random().toString(36).substring(2, 15)
       }));
       
       logger('INFO', `Retrieved ${citations.length} papers for analysis`);
@@ -1215,7 +1216,7 @@ async function searchCORE(query, limit = 5) {
               citationCount: 0, // CORE doesn't provide citation count
               referenceCount: 0,
               authors: authorString,
-              link: paper.downloadUrl || paper.url || 'No link available',
+              link: paper.downloadUrl || paper.url || paper.externalIds?.DOI || '',
               source: 'CORE'
             };
           });
@@ -1312,6 +1313,9 @@ app.get('/stream-question', async (req, res) => {
           }
         })}\n\n`);
         res.end();
+        
+        // Restore original logger
+        global.logger = originalLogger;
       } else {
         // Stage 2: Academic search
         res.write(`data: ${JSON.stringify({ 
