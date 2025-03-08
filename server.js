@@ -1044,11 +1044,14 @@ app.get('/question', async (req, res) => {
     logger('ERROR', `[${requestId}] Error processing request:`, error);
     
     if (useSSE) {
-      res.write(`data: ${JSON.stringify({
-        status: 'error',
-        error: error.message
-      })}\n\n`);
-      res.end();
+      if (!res.writableEnded) {
+        res.write(`data: ${JSON.stringify({ 
+          status: 'error', 
+          error: error.message,
+          stage: 'error'
+        })}\n\n`);
+        res.end();
+      }
     } else {
       res.status(500).json({
         error: error.message,
@@ -1275,6 +1278,9 @@ app.get('/stream-question', async (req, res) => {
   // Process function with streaming updates
   (async () => {
     try {
+      // Store original logger for later restoration
+      const originalLogger = global.logger || logger;
+      
       // Step 1: Determine if question can be answered internally
       res.write(`data: ${JSON.stringify({ 
         status: 'stage_update', 
@@ -1554,12 +1560,15 @@ Please use the language the user is using in their question.
       }
     } catch (error) {
       logger('ERROR', `[${requestId}] Streaming error:`, error);
-      res.write(`data: ${JSON.stringify({ 
-        status: 'error', 
-        error: error.message,
-        stage: 'error'
-      })}\n\n`);
-      res.end();
+      
+      if (!res.writableEnded) {
+        res.write(`data: ${JSON.stringify({ 
+          status: 'error', 
+          error: error.message,
+          stage: 'error'
+        })}\n\n`);
+        res.end();
+      }
     }
   })();
 });
@@ -1725,10 +1734,13 @@ app.get('/stream-daily-digest', async (req, res) => {
       });
     } catch (error) {
       logger('ERROR', `[${requestId}] 获取每日文章失败:`, error);
-      res.status(500).json({
-        status: 'error',
-        message: '获取每日文章时出错：' + error.message
-      });
+      
+      if (!res.writableEnded) {
+        res.status(500).json({
+          status: 'error',
+          message: '获取每日文章时出错：' + error.message
+        });
+      }
     }
   })();
 });
@@ -1786,10 +1798,13 @@ app.get('/api/daily-article', async (req, res) => {
     });
   } catch (error) {
     console.error(`[${requestId}] 获取每日文章失败:`, error);
-    res.status(500).json({
-      status: 'error',
-      message: '获取每日文章时出错: ' + error.message
-    });
+    
+    if (!res.writableEnded) {
+      res.status(500).json({
+        status: 'error',
+        message: '获取每日文章时出错: ' + error.message
+      });
+    }
   }
 });
 
