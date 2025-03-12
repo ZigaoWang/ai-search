@@ -1,7 +1,7 @@
 # ZhiDao AI API Documentation
 
 **Version**: 1.0.0  
-**Base URL**: `http://localhost:3000` locally
+**Base URL**: `http://localhost:3000`  
 **Date**: March 12, 2025
 
 This document describes the `GET /stream-question` endpoint of the AI Research Assistant API, which processes a research question with detailed streaming updates and token-by-token answer generation. It integrates with academic databases (e.g., arXiv, PubMed, Semantic Scholar, CORE) and uses AI to generate comprehensive answers with citations.
