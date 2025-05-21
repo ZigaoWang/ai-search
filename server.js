@@ -192,41 +192,6 @@ async function searchPapers(query, limit = 30, retries = 3) {
 }
 
 /**
- * Simplifies an academic answer for a general audience.
- *
- * @param {string} detailedAnswer - The detailed academic answer.
- * @param {string} originalQuestion - The original user question for context.
- * @returns {Promise<string>} - The simplified answer.
- */
-async function simplifyAnswer(detailedAnswer, originalQuestion) {
-  logger('INFO', `Simplifying answer for question: "${originalQuestion}"`);
-  const prompt = `Original Question: "${originalQuestion}"
-Detailed Academic Answer: "${detailedAnswer}"
-
-Your Task:
-Reconstruct the detailed academic answer above into a clear, concise, and easy-to-understand format suitable for a general audience.
-- Use straightforward language.
-- Employ bullet points or numbered lists for key information where appropriate.
-- Maintain all essential facts, key findings, and the academic accuracy of the original text.
-- Do not introduce any new information or opinions.
-- Do not explicitly state that this is a "simplified" version or use similar introductory phrases.
-- Directly present the reconstructed information.`;
-
-  try {
-    // Assuming streamOpenAIResponse can also return the full response if res is null,
-    // or we might need a non-streaming equivalent for internal calls.
-    // For now, let's assume it can return the full string if the 'res' (response stream) parameter is null.
-    const simplified = await streamOpenAIResponse(prompt, null, 'simplification', MODEL_BASIC);
-    logger('INFO', `Answer simplification complete.`);
-    return simplified;
-  } catch (error) {
-    logger('ERROR', `Error simplifying answer: ${error.message}`);
-    // Fallback to detailed answer if simplification fails
-    return detailedAnswer; 
-  }
-}
-
-/**
  * Balances the results to ensure a good mix of sources
  */
 function balanceResultSources(papers, targetTotal) {
@@ -937,8 +902,8 @@ Please use the language the user is using in their question.
  * @param {string} question - The user question
  * @returns {Promise<Object>} - The result object with answer and metadata
  */
-async function processQuestion(question, mode = 'deep_scholar') { // Added mode parameter with default
-  logger('INFO', `Starting research process for question: "${question}", Mode: ${mode}`);
+async function processQuestion(question) {
+  logger('INFO', `Starting research process for question: "${question}"`);
   
   try {
     // Step 1: Determine if the question can be answered internally
@@ -946,15 +911,12 @@ async function processQuestion(question, mode = 'deep_scholar') { // Added mode 
     const decision = await decideAnswer(question);
     
     if (decision.canAnswer) {
-      logger('INFO', `Question can be answered with internal knowledge - no research needed. Mode ${mode} will return direct answer.`);
-      // ALWAYS return the internal knowledge answer AS IS, regardless of mode.
-      // Simplification in 'swift_scholar' or 'auto_pilot' only applies to research-backed answers.
+      logger('INFO', `Question can be answered with internal knowledge - no research needed`);
       return {
-        answer: decision.answer, // Directly return the internal answer
+        answer: decision.answer,
         citations: [],
-        note: "Answer provided based on internal knowledge. Simplification (if in swift_scholar/auto_pilot mode) only applies to research-backed answers.",
-        processSteps: ["Evaluated question scope", "Determined internal knowledge sufficient", "Generated answer"],
-        mode: mode 
+        note: "Answer provided solely based on internal knowledge; no citations required.",
+        processSteps: ["Evaluated question scope", "Determined internal knowledge sufficient", "Generated answer"]
       };
     } else {
       // Step 2: Fetch relevant papers
@@ -965,11 +927,10 @@ async function processQuestion(question, mode = 'deep_scholar') { // Added mode 
       if (!papers || papers.length === 0) {
         logger('WARN', `No papers found for query: "${queryWord}"`);
         return {
-          answer: `我无法找到与\"${question}\"相关的学术文章，使用搜索词\"${queryWord}\"。`,
+          answer: `我无法找到与"${question}"相关的学术文章，使用搜索词"${queryWord}"。`,
           queryWord: queryWord,
           citations: [],
-          processSteps: ["Evaluated question scope", "Determined research needed", "Retrieved 0 papers", "Generated response"],
-          mode: mode
+          processSteps: ["Evaluated question scope", "Determined research needed", "Retrieved 0 papers", "Generated response"]
         };
       }
       
@@ -988,41 +949,28 @@ async function processQuestion(question, mode = 'deep_scholar') { // Added mode 
       logger('INFO', `Retrieved ${citations.length} papers for analysis`);
       
       // Step 3: Generate a comprehensive answer using the citations
-      logger('INFO', `PROCESS STAGE 3: Generating comprehensive answer with citations (Deep Scholar step)`);
-      const deepScholarResult = await generateAnswerWithCitations(question, citations);
+      logger('INFO', `PROCESS STAGE 3: Generating comprehensive answer with citations`);
+      const result = await generateAnswerWithCitations(question, citations);
       
-      let finalAnswer = deepScholarResult.answer;
-      let finalProcessSteps = [
-        "Evaluated question scope", 
-        "Determined research needed", 
-        `Retrieved ${citations.length} papers`,
-        "Analyzed paper content",
-        "Generated comprehensive answer with citations"
-      ];
-
-      // Simplification logic ONLY applies if research was done.
-      if ((mode === 'swift_scholar' || mode === 'auto_pilot') && finalAnswer) {
-        logger('INFO', `Simplifying research-backed answer for mode: ${mode}`);
-        finalAnswer = await simplifyAnswer(finalAnswer, question);
-        finalProcessSteps.push("Simplified research-backed answer for clarity");
-      }
-      
-      logger('INFO', `Research process completed successfully for mode: ${mode}`);
+      logger('INFO', `Research process completed successfully`);
       return {
-        answer: finalAnswer,
+        answer: result.answer,
         queryWord: queryWord,
-        citations: citations, // Citations remain from the deep search
-        paperAnalysis: deepScholarResult.analysis, // Analysis also from deep search
-        citationMapping: deepScholarResult.citationMapping, // Mapping also from deep search
-        processSteps: finalProcessSteps,
-        mode: mode // Include the mode in the response
+        citations: citations,
+        paperAnalysis: result.analysis,
+        citationMapping: result.citationMapping,
+        processSteps: [
+          "Evaluated question scope", 
+          "Determined research needed", 
+          `Retrieved ${citations.length} papers`,
+          "Analyzed paper content",
+          "Generated comprehensive answer with citations"
+        ]
       };
     }
   } catch (error) {
     logger('ERROR', `Error in research process:`, error.message);
-    // Ensure mode is included in error response if possible, or a default value
-    // This part of the code might need more robust error handling for mode
-    throw error; // Re-throw for the main error handlers to catch and format
+    throw error;
   }
 }
 
@@ -1034,9 +982,8 @@ async function processQuestion(question, mode = 'deep_scholar') { // Added mode 
 app.get('/question', async (req, res) => {
   const requestId = Math.random().toString(36).substring(2, 15);
   const question = req.query.query;
-  const mode = req.query.mode || 'deep_scholar'; // Added mode
   
-  logger('INFO', `[${requestId}] Received GET request for question: "${question}", Mode: ${mode}`);
+  logger('INFO', `[${requestId}] Received GET request for question: "${question}"`);
   
   if (!question) {
     logger('WARN', `[${requestId}] Missing query parameter`);
@@ -1077,7 +1024,7 @@ app.get('/question', async (req, res) => {
       };
       
       // Process the question
-      const result = await processQuestion(question, mode); // Pass mode
+      const result = await processQuestion(question);
       
       // Send final result
       res.write(`data: ${JSON.stringify({
@@ -1090,7 +1037,7 @@ app.get('/question', async (req, res) => {
       global.logger = originalLogger;
     } else {
       // Process normally for JSON response
-      const result = await processQuestion(question, mode); // Pass mode
+      const result = await processQuestion(question);
       res.json(result);
     }
   } catch (error) {
@@ -1122,9 +1069,8 @@ app.get('/question', async (req, res) => {
 app.post('/question', async (req, res) => {
   const requestId = Math.random().toString(36).substring(2, 15);
   const question = req.body.query;
-  const mode = req.body.mode || 'deep_scholar'; // Added mode
   
-  logger('INFO', `[${requestId}] Received POST request for question: "${question}", Mode: ${mode}`);
+  logger('INFO', `[${requestId}] Received POST request for question: "${question}"`);
   
   if (!question) {
     logger('WARN', `[${requestId}] Missing query in request body`);
@@ -1132,7 +1078,7 @@ app.post('/question', async (req, res) => {
   }
   
   try {
-    const result = await processQuestion(question, mode); // Pass mode
+    const result = await processQuestion(question);
     res.json(result);
   } catch (error) {
     logger('ERROR', `[${requestId}] Error processing request:`, error);
